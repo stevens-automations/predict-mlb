@@ -6,7 +6,7 @@ from apscheduler.events import (
     EVENT_JOB_MISSED,
 )
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple, Any
 from uuid import uuid4
 import json
 from server.get_odds import get_todays_odds
@@ -15,6 +15,7 @@ from data import LeagueStats
 from paths import get_env_path, load_env
 from runtime import validate_runtime
 from reliability_utils import get_predicted_winner_location
+from storage import ShadowWriteStats, shadow_writer_from_env
 import pandas as pd  # type: ignore
 import subprocess
 import threading
@@ -157,6 +158,8 @@ def update_row(row: pd.Series) -> pd.Series:
 
 def load_unchecked_predictions_from_excel(
     file_name: str,
+    shadow_writer: Optional[Any] = None,
+    shadow_stats: Optional[ShadowWriteStats] = None,
 ) -> Optional[pd.DataFrame]:
     """
     function to load unchecked predictions from the excel sheet back into pd dataframe
@@ -223,6 +226,14 @@ def load_unchecked_predictions_from_excel(
                 send_tweet(res)
         df.update(df_missing_accuracy)
         df.to_excel(file_name, index=False)
+        if shadow_writer is not None and not df_missing_accuracy.empty:
+            try:
+                success, failure = shadow_writer.mirror_predictions(df_missing_accuracy)
+            except Exception as exc:
+                print(f"[warn] SQLite shadow write failed, continuing with Excel only: {exc}")
+                success, failure = (0, len(df_missing_accuracy))
+            if shadow_stats is not None:
+                shadow_stats.add(success, failure)
         return df
     except FileNotFoundError:
         return None
@@ -285,8 +296,12 @@ def get_tweet_job_id(tweet: str) -> str:
     return f"tweet_{digest}"
 
 def generate_daily_predictions(
-    model: str = selected_model, date = datetime.now(), run_id: Optional[str] = None
-) -> List:
+    model: str = selected_model,
+    date = datetime.now(),
+    run_id: Optional[str] = None,
+    shadow_writer: Optional[Any] = None,
+    shadow_stats: Optional[ShadowWriteStats] = None,
+) -> tuple[List[str], int]:
     """
     function to generate predictions for one day of MLB games...
     ...and save them with other pertinent game information
@@ -492,6 +507,14 @@ def generate_daily_predictions(
             df_new = df_new[column_order]
             df = pd.concat([df, df_new], ignore_index=True)
             df.to_excel(data_file, index=False)
+            if shadow_writer is not None:
+                try:
+                    success, failure = shadow_writer.mirror_predictions(df_new)
+                except Exception as exc:
+                    print(f"[warn] SQLite shadow write failed, continuing with Excel only: {exc}")
+                    success, failure = (0, len(df_new))
+                if shadow_stats is not None:
+                    shadow_stats.add(success, failure)
         else:
             print(
                 f"{datetime.now(eastern).strftime('%D - %I:%M:%S %p')}... \n"
@@ -507,7 +530,7 @@ def generate_daily_predictions(
         result=f"completed: {len(tweet_lines)} tweet lines",
         run_id=run_id,
     )
-    return tweet_lines
+    return tweet_lines, len(game_predictions)
 
 
 def mark_as_tweeted(tweet: str) -> None:
@@ -577,7 +600,7 @@ def send_tweet(tweet: str) -> bool:
         return False
 
 
-def schedule_tweets(tweet_lines: List[str], run_id: Optional[str] = None) -> None: 
+def schedule_tweets(tweet_lines: List[str], run_id: Optional[str] = None) -> int: 
     """
     Function to schedule the prediction tweet(s) for the day 
         -> Will make call to tweet_generator.py for body of tweet(s)
@@ -591,17 +614,19 @@ def schedule_tweets(tweet_lines: List[str], run_id: Optional[str] = None) -> Non
     """
     global daily_scheduler
     if not tweet_lines or daily_scheduler is None:
-        return
+        return 0
 
     tweet_lines = unique_tweet_lines(tweet_lines)
     if not tweet_lines:
-        return
+        return 0
 
     tweets = create_tweets(tweet_lines)
     now = datetime.now(eastern)
     start_time = now.replace(hour=9, minute=45, second=0, microsecond=0)
     end_time = now.replace(hour=23, minute=59, second=59, microsecond=0)
     delay = 0
+
+    scheduled_jobs = 0
 
     for tweet in tweets[::-1]:
         now = datetime.now(eastern)
@@ -642,7 +667,8 @@ def schedule_tweets(tweet_lines: List[str], run_id: Optional[str] = None) -> Non
             f"...scheduled to be sent at {tweet_time.strftime('%D - %I:%M:%S %p')}\n"
         )
         delay += 5
-    return
+        scheduled_jobs += 1
+    return scheduled_jobs
 
 
 def check_and_predict():
@@ -652,8 +678,15 @@ def check_and_predict():
     log_event(stage="check_and_predict", result="started", run_id=current_run_id)
     validate_runtime()
     data_file = get_data_path()
+    shadow_writer = shadow_writer_from_env()
+    shadow_stats = ShadowWriteStats()
+
     try:
-        load_unchecked_predictions_from_excel(data_file)
+        load_unchecked_predictions_from_excel(
+            data_file,
+            shadow_writer=shadow_writer,
+            shadow_stats=shadow_stats,
+        )
     except Exception as e:
         print(f"Error checking past predictions in {data_file}. {e}")
         log_event(
@@ -671,12 +704,16 @@ def check_and_predict():
     daily_scheduler.add_listener(print_next_job, EVENT_JOB_EXECUTED)
     daily_scheduler.add_listener(print_next_job, EVENT_JOB_MISSED)
 
-    tweet_lines = generate_daily_predictions(run_id=current_run_id)
+    tweet_lines, predicted_games = generate_daily_predictions(
+        run_id=current_run_id,
+        shadow_writer=shadow_writer,
+        shadow_stats=shadow_stats,
+    )
     '''try:
         schedule_tweets(tweet_lines)
     except Exception as e:
         print(f"Error sending prediction tweet(s). {e}")'''
-    schedule_tweets(tweet_lines, run_id=current_run_id)
+    scheduled_jobs = schedule_tweets(tweet_lines, run_id=current_run_id)
 
     # start call is blocking, so scheduler shutdown in listener when last event finished
     daily_scheduler.start()
@@ -687,7 +724,14 @@ def check_and_predict():
     )
     time.sleep(10)
     daily_scheduler = None
-    log_event(stage="check_and_predict", result="completed", run_id=current_run_id)
+    summary = (
+        f"run_summary predicted_games={predicted_games} "
+        f"scheduled_jobs={scheduled_jobs} "
+        f"shadow_write_successes={shadow_stats.success} "
+        f"shadow_write_failures={shadow_stats.failure}"
+    )
+    print(f"[predict-summary] {summary}")
+    log_event(stage="check_and_predict", result=summary, run_id=current_run_id)
     current_run_id = None
     return
 
