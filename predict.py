@@ -9,8 +9,10 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 from server.get_odds import get_todays_odds
 from server.prep_tweet import prepare
-from dotenv import load_dotenv  # type: ignore
 from data import LeagueStats
+from paths import get_env_path, load_env
+from runtime import validate_runtime
+from reliability_utils import get_predicted_winner_location
 import pandas as pd  # type: ignore
 import subprocess
 import threading
@@ -22,8 +24,7 @@ import os
 # use model defined in .env or by default 'mlb4year'
 selected_model = "mlb4year"
 cwd = os.path.dirname(os.path.abspath(__file__))
-env_file_path = os.path.join(cwd, ".env")
-load_dotenv(env_file_path)
+load_env()
 ret = os.getenv("SELECTED_MODEL")
 selected_model = ret if ret is not None else selected_model
 
@@ -45,16 +46,12 @@ daily_scheduler = None
 
 def get_data_path() -> str:
     """
-    function that will fetch the current data sheet path from .env file
+    function that will fetch and resolve the current data sheet path from .env file
 
-    Returns: 
-        str: path to the data sheet from the same directory as the .env file
+    Returns:
+        str: absolute path to the data sheet
     """
-    cwd = os.path.dirname(os.path.abspath(__file__))
-    env_file_path = os.path.join(cwd, ".env")
-    load_dotenv(env_file_path)
-    data_sheet = os.getenv("DATA_SHEET_PATH")
-    return data_sheet if data_sheet is not None else "data/predictions.xlsx"
+    return get_env_path("DATA_SHEET_PATH", "data/predictions.xlsx")
 
 
 def print_next_job(event) -> None:
@@ -261,7 +258,7 @@ def generate_daily_predictions(
     if date is not datetime.now():
         # NOT IMPLEMENTED: generating predictions for future days
         pass
-    data_file = os.path.join(cwd, get_data_path())
+    data_file = get_data_path()
     scheduled_ids = []
     predicted_ids = []
     model = selected_model
@@ -365,7 +362,7 @@ def generate_daily_predictions(
         home, away = info["home"], info["away"]
         info["predicted_winner"] = winner
         info["model"] = model
-        info["predicted_winner_location"] = "home" if (winner is home) else "away"
+        info["predicted_winner_location"] = get_predicted_winner_location(winner, home)
         info["prediction_value"] = prediction
         info["time"] = game["time"]
         info["favorite"] = game.get("favorite")
@@ -556,7 +553,8 @@ def schedule_tweets(tweet_lines: List[str]) -> None:
 def check_and_predict():
     global daily_scheduler
     daily_scheduler = None
-    data_file = os.path.join(cwd, get_data_path())
+    validate_runtime()
+    data_file = get_data_path()
     try:
         load_unchecked_predictions_from_excel(data_file)
     except Exception as e:

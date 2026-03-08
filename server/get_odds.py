@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Dict, Tuple, Optional
 from dotenv import load_dotenv  # type: ignore
 import requests  # type: ignore
@@ -6,6 +6,7 @@ import calendar
 import pytz  # type: ignore
 import json
 import os
+from time_utils import parse_iso_z_to_eastern
 
 # minimum time between requests
 REQUEST_COOLDOWN = 900 # 0.25 hour
@@ -141,8 +142,7 @@ def process_data(data):
     # current time
     for game in data:
         game_info = {}
-        UTC_date = datetime.strptime(game["commence_time"], "%Y-%m-%dT%H:%M:%SZ")
-        EST_date = UTC_date.astimezone(pytz.timezone("US/Eastern")) - timedelta(hours=4)
+        EST_date = parse_iso_z_to_eastern(game["commence_time"])
         formatted_date = format_date(EST_date)
         if formatted_date != "Today":
             continue
