@@ -6,7 +6,7 @@ from apscheduler.events import (
     EVENT_JOB_MISSED,
 )
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 from server.get_odds import get_todays_odds
 from server.prep_tweet import prepare
 from data import LeagueStats
@@ -20,6 +20,7 @@ import statsapi  # type: ignore
 import pytz  # type: ignore
 import time
 import os
+import hashlib
 
 # use model defined in .env or by default 'mlb4year'
 selected_model = "mlb4year"
@@ -90,7 +91,10 @@ def update_row(row: pd.Series) -> pd.Series:
     global global_correct, global_wrong, global_biggest_upset, global_upset_diff
     predicted_winner = row["predicted_winner"]
     id = row["game_id"]
-    game = statsapi.schedule(game_id=id)[-1]
+    games = statsapi.schedule(game_id=id)
+    if not games:
+        return row
+    game = games[-1]
     if game["status"] != "Final":
         return row
     actual_winner = game.get("winning_team")
@@ -156,6 +160,8 @@ def load_unchecked_predictions_from_excel(
     global_results = None
     try:
         df = pd.read_excel(file_name)
+        if "prediction_accuracy" not in df.columns:
+            return df
         df_missing_accuracy = df[df["prediction_accuracy"].isnull()]
         df_missing_accuracy = df_missing_accuracy.apply(update_row, axis=1)
         if (global_correct + global_wrong) > 0:
@@ -240,6 +246,26 @@ def are_within_30_minutes(dt1, dt2):
     return diff <= thirty_mins
 
 
+def normalize_tweet_line(line: str) -> str:
+    return line.replace("•", "").strip()
+
+
+def unique_tweet_lines(tweet_lines: List[str]) -> List[str]:
+    seen: Set[str] = set()
+    unique_lines: List[str] = []
+    for line in tweet_lines:
+        normalized = normalize_tweet_line(line)
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        unique_lines.append(normalized)
+    return unique_lines
+
+
+def get_tweet_job_id(tweet: str) -> str:
+    digest = hashlib.sha1(tweet.encode("utf-8")).hexdigest()[:12]
+    return f"tweet_{digest}"
+
 def generate_daily_predictions(
     model: str = selected_model, date = datetime.now()
 ) -> List:
@@ -265,30 +291,36 @@ def generate_daily_predictions(
     tweet_lines = []
     try:
         df = pd.read_excel(data_file)
-        dates = pd.to_datetime(df["date"]).dt.tz_localize(pytz.utc)
-        existing_dates = dates.dt.tz_convert(eastern).dt.date.unique()
-        existing_dates_list = [str(date) for date in existing_dates]
-        check_date = str(date.date())
-        if check_date in existing_dates_list:
-            d = pd.to_datetime(df["date"]).dt.tz_localize(pytz.utc)
-            d = d.dt.tz_convert(eastern).dt.date
-            mask = (d == date.date()) & (df["tweeted?"] == False)
-            to_tweet_today = df[mask]
-            if not to_tweet_today.empty:
+        required_cols = {"date", "tweeted?", "game_id"}
+        if required_cols.issubset(df.columns):
+            dates = pd.to_datetime(df["date"], errors="coerce", utc=True).dropna()
+            existing_dates = dates.dt.tz_convert(eastern).dt.date.unique()
+            existing_dates_list = [str(date) for date in existing_dates]
+            check_date = str(date.date())
+            if check_date in existing_dates_list:
+                d = pd.to_datetime(df["date"], errors="coerce", utc=True)
+                d = d.dt.tz_convert(eastern).dt.date
+                mask = (d == date.date()) & (df["tweeted?"] == False)
+                to_tweet_today = df[mask]
+            else:
+                to_tweet_today = pd.DataFrame()
+        else:
+            to_tweet_today = pd.DataFrame()
+        if not to_tweet_today.empty:
+            print(
+                f"{datetime.now(eastern).strftime('%D - %I:%M:%S %p')}... "
+                f"\nFound {str(len(to_tweet_today))} "
+                f"games in sheet that need to be published (tweeted)\n"
+            )
+            for _, row in to_tweet_today.iterrows():
+                scheduled_ids.append(row["game_id"])
+                predicted_ids.append(row["game_id"])
+                line = safely_prepare(row)
+                tweet_lines.append(line)
                 print(
-                    f"{datetime.now(eastern).strftime('%D - %I:%M:%S %p')}... "
-                    f"\nFound {str(len(to_tweet_today))} "
-                    f"games in sheet that need to be published (tweeted)\n"
+                    f"{datetime.now(eastern).strftime('%D - %I:%M:%S %p')}... \nAdded game "
+                    f"({row['away']} @ {row['home']}) to tweet (from sheet)"
                 )
-                for _, row in to_tweet_today.iterrows():
-                    scheduled_ids.append(row["game_id"])
-                    predicted_ids.append(row["game_id"])
-                    line = safely_prepare(row)
-                    tweet_lines.append(line)
-                    print(
-                        f"{datetime.now(eastern).strftime('%D - %I:%M:%S %p')}... \nAdded game "
-                        f"({row['away']} @ {row['home']}) to tweet (from sheet)"
-                    )
     except FileNotFoundError:
         df = pd.DataFrame()
 
@@ -449,25 +481,27 @@ def mark_as_tweeted(tweet: str) -> None:
     Args: 
         tweet: tweet that has been sent and should be marked as sent
     """
-    # read predictions in dataframe
-    df = pd.read_excel(get_data_path())
-    # split tweet to get individual tweet lines
+    data_path = get_data_path()
+    if not os.path.exists(data_path):
+        return
+    df = pd.read_excel(data_path)
+    if "tweet" not in df.columns or "tweeted?" not in df.columns:
+        return
+
     lines = tweet.split('\n')
-    # find row with current tweet, and marked 'tweeted?' as True
     for line in lines:
-        # preprocess tweet to get rid of formatting
-        line = line.replace("•", "")
-        line = line.strip()
+        normalized_line = normalize_tweet_line(line)
+        if not normalized_line:
+            continue
         try:
-            df.loc[df['tweet'] == line, 'tweeted?'] = True 
-        except:
+            df.loc[df['tweet'] == normalized_line, 'tweeted?'] = True
+        except Exception:
             print(
                 f"Failed to mark tweet... \n"
-                f"'{line}' as tweeted."
+                f"'{normalized_line}' as tweeted."
             )
             continue
-    # write back to excel
-    df.to_excel(get_data_path(), index=False)
+    df.to_excel(data_path, index=False)
 
 
 def send_tweet(tweet: str) -> bool:
@@ -520,26 +554,39 @@ def schedule_tweets(tweet_lines: List[str]) -> None:
         None
     """
     global daily_scheduler
+    if not tweet_lines or daily_scheduler is None:
+        return
+
+    tweet_lines = unique_tweet_lines(tweet_lines)
     if not tweet_lines:
         return
+
     tweets = create_tweets(tweet_lines)
     now = datetime.now(eastern)
     start_time = now.replace(hour=9, minute=45, second=0, microsecond=0)
     end_time = now.replace(hour=23, minute=59, second=59, microsecond=0)
     delay = 0
-    # add each tweet to the scheduler
+
     for tweet in tweets[::-1]:
         now = datetime.now(eastern)
-        # check if missed normal tweet time (before 9:45 AM)
         if start_time <= now <= end_time:
-            # If missed normal time (after 9:45) schedule tweet in 10 mins
             tweet_time = now + timedelta(minutes=1, seconds=delay)
         else:
-            # schedule tweet
             tweet_time = datetime.now().replace(hour=9, minute=45, second=delay, microsecond=0)
+
+        job_id = get_tweet_job_id(tweet)
+        if daily_scheduler.get_job(job_id) is not None:
+            print(f"Skipping duplicate scheduled tweet job: {job_id}")
+            continue
+
         print("Scheduling Tweet...\n")
         daily_scheduler.add_job(
-            send_tweet, args=[tweet], trigger="date", run_date=tweet_time
+            send_tweet,
+            args=[tweet],
+            trigger="date",
+            run_date=tweet_time,
+            id=job_id,
+            replace_existing=False,
         )
         print(
             f"{datetime.now(eastern).strftime('%D - %I:%M:%S %p')}..."
