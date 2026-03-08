@@ -121,12 +121,32 @@ def update_row(row: pd.Series) -> pd.Series:
         winner_odds, loser_odds = row["home_odds"], row["away_odds"]
     else:
         winner_odds, loser_odds = row["away_odds"], row["home_odds"]
+    def _coerce_odds(value):
+        if value is None:
+            return None
+        if isinstance(value, (int, float)):
+            return int(value)
+        s = str(value).strip()
+        if not s:
+            return None
+        try:
+            return int(s)
+        except ValueError:
+            try:
+                return int(float(s))
+            except Exception:
+                return None
+
+    winner_odds_i = _coerce_odds(winner_odds)
+    loser_odds_i = _coerce_odds(loser_odds)
+
     if prediction_accuracy == 1.0:
         global_correct += 1
-        odds_diff = int((abs(winner_odds) - 100) + (abs(loser_odds) - 100))
-        if odds_diff > global_upset_diff and winner_odds > 100:
-            global_upset_diff = odds_diff
-            global_biggest_upset = [actual_winner, winner_odds, losing_team, loser_odds]
+        if winner_odds_i is not None and loser_odds_i is not None:
+            odds_diff = int((abs(winner_odds_i) - 100) + (abs(loser_odds_i) - 100))
+            if odds_diff > global_upset_diff and winner_odds_i > 100:
+                global_upset_diff = odds_diff
+                global_biggest_upset = [actual_winner, winner_odds_i, losing_team, loser_odds_i]
     else:
         global_wrong += 1
 
@@ -329,6 +349,9 @@ def generate_daily_predictions(storage, model: str = selected_model, date=dateti
 
     df_new = pd.DataFrame(game_predictions)
     if len(df_new) > 0:
+        for col in COLUMN_ORDER:
+            if col not in df_new.columns:
+                df_new[col] = None
         df_new = df_new[COLUMN_ORDER]
         success, failure = storage.upsert_predictions(df_new)
         if write_stats is not None:
