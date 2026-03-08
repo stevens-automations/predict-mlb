@@ -7,6 +7,8 @@ from apscheduler.events import (
 )
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Set, Tuple
+from uuid import uuid4
+import json
 from server.get_odds import get_todays_odds
 from server.prep_tweet import prepare
 from data import LeagueStats
@@ -43,6 +45,22 @@ eastern = pytz.timezone("America/New_York")
 
 # define daily_scheduler as global var
 daily_scheduler = None
+current_run_id: Optional[str] = None
+
+
+def log_event(
+    stage: str,
+    result: str,
+    game_id: Optional[str] = None,
+    run_id: Optional[str] = None,
+) -> None:
+    payload = {
+        "run_id": run_id or current_run_id or "unknown",
+        "stage": stage,
+        "game_id": game_id,
+        "result": result,
+    }
+    print(f"[predict-log] {json.dumps(payload)}")
 
 
 def get_data_path() -> str:
@@ -267,7 +285,7 @@ def get_tweet_job_id(tweet: str) -> str:
     return f"tweet_{digest}"
 
 def generate_daily_predictions(
-    model: str = selected_model, date = datetime.now()
+    model: str = selected_model, date = datetime.now(), run_id: Optional[str] = None
 ) -> List:
     """
     function to generate predictions for one day of MLB games...
@@ -289,6 +307,7 @@ def generate_daily_predictions(
     predicted_ids = []
     model = selected_model
     tweet_lines = []
+    log_event(stage="generate_daily_predictions", result="started", run_id=run_id)
     try:
         df = pd.read_excel(data_file)
         required_cols = {"date", "tweeted?", "game_id"}
@@ -386,6 +405,12 @@ def generate_daily_predictions(
             winner, prediction, info = ret[0], ret[1], ret[2]
         except Exception as e:
             print(f"Error predicting next game: \n{e}\n")
+            log_event(
+                stage="predict_game",
+                game_id=str(gameObj[0]) if len(gameObj) > 0 else None,
+                result=f"error: {e}",
+                run_id=run_id,
+            )
             continue
         if len(gameObj) == 3:
             doubleheader_game = gameObj[2]
@@ -422,6 +447,12 @@ def generate_daily_predictions(
         )
         tweet_lines.append(tweet)
         game_predictions.append(info)
+        log_event(
+            stage="predict_game",
+            game_id=str(gamePk),
+            result="queued_for_tweet",
+            run_id=run_id,
+        )
 
     df_new = pd.DataFrame(game_predictions)
     column_order = [
@@ -471,6 +502,11 @@ def generate_daily_predictions(
             f"{datetime.now(eastern).strftime('%D - %I:%M:%S %p')}... \n"
             f"No new games to added to data sheet\n"
         )
+    log_event(
+        stage="generate_daily_predictions",
+        result=f"completed: {len(tweet_lines)} tweet lines",
+        run_id=run_id,
+    )
     return tweet_lines
 
 
@@ -541,7 +577,7 @@ def send_tweet(tweet: str) -> bool:
         return False
 
 
-def schedule_tweets(tweet_lines: List[str]) -> None: 
+def schedule_tweets(tweet_lines: List[str], run_id: Optional[str] = None) -> None: 
     """
     Function to schedule the prediction tweet(s) for the day 
         -> Will make call to tweet_generator.py for body of tweet(s)
@@ -577,6 +613,12 @@ def schedule_tweets(tweet_lines: List[str]) -> None:
         job_id = get_tweet_job_id(tweet)
         if daily_scheduler.get_job(job_id) is not None:
             print(f"Skipping duplicate scheduled tweet job: {job_id}")
+            log_event(
+                stage="schedule_tweets",
+                result="skipped_duplicate_job",
+                game_id=job_id,
+                run_id=run_id,
+            )
             continue
 
         print("Scheduling Tweet...\n")
@@ -588,6 +630,12 @@ def schedule_tweets(tweet_lines: List[str]) -> None:
             id=job_id,
             replace_existing=False,
         )
+        log_event(
+            stage="schedule_tweets",
+            result="scheduled",
+            game_id=job_id,
+            run_id=run_id,
+        )
         print(
             f"{datetime.now(eastern).strftime('%D - %I:%M:%S %p')}..."
             f"\n{tweet}\n"
@@ -598,14 +646,21 @@ def schedule_tweets(tweet_lines: List[str]) -> None:
 
 
 def check_and_predict():
-    global daily_scheduler
+    global daily_scheduler, current_run_id
     daily_scheduler = None
+    current_run_id = str(uuid4())
+    log_event(stage="check_and_predict", result="started", run_id=current_run_id)
     validate_runtime()
     data_file = get_data_path()
     try:
         load_unchecked_predictions_from_excel(data_file)
     except Exception as e:
         print(f"Error checking past predictions in {data_file}. {e}")
+        log_event(
+            stage="load_unchecked_predictions",
+            result=f"error: {e}",
+            run_id=current_run_id,
+        )
 
     # create daily scheduler
     daily_scheduler = BlockingScheduler(
@@ -616,12 +671,12 @@ def check_and_predict():
     daily_scheduler.add_listener(print_next_job, EVENT_JOB_EXECUTED)
     daily_scheduler.add_listener(print_next_job, EVENT_JOB_MISSED)
 
-    tweet_lines = generate_daily_predictions()
+    tweet_lines = generate_daily_predictions(run_id=current_run_id)
     '''try:
         schedule_tweets(tweet_lines)
     except Exception as e:
         print(f"Error sending prediction tweet(s). {e}")'''
-    schedule_tweets(tweet_lines)
+    schedule_tweets(tweet_lines, run_id=current_run_id)
 
     # start call is blocking, so scheduler shutdown in listener when last event finished
     daily_scheduler.start()
@@ -632,6 +687,8 @@ def check_and_predict():
     )
     time.sleep(10)
     daily_scheduler = None
+    log_event(stage="check_and_predict", result="completed", run_id=current_run_id)
+    current_run_id = None
     return
 
 
