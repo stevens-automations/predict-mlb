@@ -70,6 +70,8 @@ class TestScheduleDeduping(unittest.TestCase):
         stub_tweet_gen = types.ModuleType("server.tweet_generator")
         stub_tweet_gen.gen_result_tweet = lambda *args, **kwargs: ""
         stub_tweet_gen.gen_game_line = lambda *args, **kwargs: ""
+        stub_tweet_gen.gen_game_line_with_observability = lambda row, mode=None: ("", "")
+        stub_tweet_gen.get_enrichment_mode = lambda: "on"
         stub_tweet_gen.create_tweets = lambda lines: ["\n".join(lines)]
         stub_tweet_gen.summarize_enrichment_observability = lambda lines: {
             "total_game_lines": len(lines),
@@ -134,6 +136,38 @@ class TestScheduleDeduping(unittest.TestCase):
             predict.schedule_tweets(["Yankees ML"])
 
         self.assertEqual(len(fake_scheduler.added), 1)
+
+
+class TestPredictGuardrails(unittest.TestCase):
+    def _load_predict_module(self):
+        return TestScheduleDeduping()._load_predict_module()
+
+    def test_validate_tweet_line_rejects_empty_and_long(self):
+        predict = self._load_predict_module()
+        is_valid, reason, _ = predict._validate_tweet_line("   ")
+        self.assertFalse(is_valid)
+        self.assertEqual(reason, "empty_line")
+
+        too_long = "x" * (predict.MAX_TWEET_LINE_LENGTH + 1)
+        is_valid, reason, _ = predict._validate_tweet_line(too_long)
+        self.assertFalse(is_valid)
+        self.assertEqual(reason, "line_too_long")
+
+    def test_threshold_warning_emission(self):
+        predict = self._load_predict_module()
+        summary = {
+            "total_game_lines": 10,
+            "confidence_tier_distribution": {"H": 1, "M": 1, "L": 8},
+            "mismatch_count": 7,
+            "mismatch_rate": 0.7,
+        }
+        with patch.dict("os.environ", {
+            "ENRICHMENT_MISMATCH_RATE_WARN": "0.60",
+            "ENRICHMENT_LOW_CONFIDENCE_RATE_WARN": "0.70",
+        }, clear=False):
+            warnings = predict._emit_enrichment_threshold_warnings(summary, run_id="r1", stage="run_summary")
+        self.assertIn("enrichment_mismatch_rate_high", warnings)
+        self.assertIn("enrichment_low_confidence_rate_high", warnings)
 
 
 if __name__ == "__main__":

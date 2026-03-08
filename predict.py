@@ -1,8 +1,10 @@
 from server.tweet_generator import (
     gen_result_tweet,
     gen_game_line,
+    gen_game_line_with_observability,
     create_tweets,
     summarize_enrichment_observability,
+    get_enrichment_mode,
 )
 from apscheduler.schedulers.background import BlockingScheduler  # type: ignore
 from apscheduler.events import (
@@ -47,6 +49,11 @@ lock = threading.Lock()
 eastern = pytz.timezone("America/New_York")
 daily_scheduler = None
 current_run_id: Optional[str] = None
+
+
+MAX_TWEET_LINE_LENGTH = 180
+DEFAULT_ENRICHMENT_MISMATCH_RATE_WARN = 0.60
+DEFAULT_ENRICHMENT_LOW_CONF_RATE_WARN = 0.70
 
 
 COLUMN_ORDER = [
@@ -238,7 +245,93 @@ def get_tweet_job_id(tweet: str) -> str:
     return f"tweet_{digest}"
 
 
-def generate_daily_predictions(storage, model: str = selected_model, date=datetime.now(), run_id: Optional[str] = None, write_stats: Optional[WriteStats] = None) -> tuple[List[str], int]:
+def _parse_float_env(name: str, default: float) -> float:
+    raw = os.getenv(name, "")
+    try:
+        value = float(str(raw).strip())
+        if 0.0 <= value <= 1.0:
+            return value
+    except (TypeError, ValueError):
+        pass
+    return default
+
+
+def _required_line_fields_present(info: Dict) -> tuple[bool, List[str]]:
+    required_fields = ["home", "away", "predicted_winner", "game_id", "date"]
+    missing = [field for field in required_fields if info.get(field) in (None, "")]
+    return len(missing) == 0, missing
+
+
+def _validate_tweet_line(line: str) -> tuple[bool, Optional[str], str]:
+    normalized = normalize_tweet_line(line)
+    if not normalized:
+        return False, "empty_line", normalized
+    if len(normalized) > MAX_TWEET_LINE_LENGTH:
+        return False, "line_too_long", normalized
+    return True, None, normalized
+
+
+def _guardrail_warn(reason: str, stage: str, run_id: Optional[str], details: Optional[Dict[str, object]] = None) -> None:
+    payload: Dict[str, object] = {
+        "run_id": run_id or current_run_id or "unknown",
+        "stage": stage,
+        "warning": reason,
+    }
+    if details:
+        payload.update(details)
+    print(f"[guardrail-warning] {json.dumps(payload, sort_keys=True)}")
+
+
+def _emit_enrichment_threshold_warnings(summary: Dict[str, object], run_id: Optional[str], stage: str) -> List[str]:
+    mismatch_warn = _parse_float_env("ENRICHMENT_MISMATCH_RATE_WARN", DEFAULT_ENRICHMENT_MISMATCH_RATE_WARN)
+    low_conf_warn = _parse_float_env("ENRICHMENT_LOW_CONFIDENCE_RATE_WARN", DEFAULT_ENRICHMENT_LOW_CONF_RATE_WARN)
+    warnings: List[str] = []
+
+    mismatch_rate = float(summary.get("mismatch_rate", 0.0) or 0.0)
+    low_count = int((summary.get("confidence_tier_distribution") or {}).get("L", 0))
+    total = int(summary.get("total_game_lines", 0) or 0)
+    low_conf_rate = (low_count / total) if total else 0.0
+
+    if mismatch_rate >= mismatch_warn:
+        warnings.append("enrichment_mismatch_rate_high")
+    if low_conf_rate >= low_conf_warn:
+        warnings.append("enrichment_low_confidence_rate_high")
+
+    for warning in warnings:
+        _guardrail_warn(
+            reason=warning,
+            stage=stage,
+            run_id=run_id,
+            details={
+                "summary": summary,
+                "mismatch_rate_warn": mismatch_warn,
+                "low_confidence_rate_warn": low_conf_warn,
+                "low_confidence_rate": round(low_conf_rate, 4),
+            },
+        )
+    return warnings
+
+
+def _write_enrichment_report(run_id: Optional[str], report: Dict[str, object]) -> Optional[str]:
+    report_path = os.getenv("ENRICHMENT_REPORT_PATH", "").strip()
+    if not report_path:
+        report_path = f"docs/reports/enrichment-{datetime.now(eastern).date().isoformat()}.jsonl"
+    if report_path.lower() in {"off", "false", "none", "0"}:
+        return None
+
+    resolved_path = os.path.join(cwd, report_path) if not os.path.isabs(report_path) else report_path
+    report_dir = os.path.dirname(resolved_path)
+    if report_dir:
+        os.makedirs(report_dir, exist_ok=True)
+    payload = dict(report)
+    payload["run_id"] = run_id or current_run_id or "unknown"
+    payload["timestamp_et"] = datetime.now(eastern).isoformat()
+    with open(resolved_path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(payload, sort_keys=True) + "\n")
+    return resolved_path
+
+
+def generate_daily_predictions(storage, model: str = selected_model, date=datetime.now(), run_id: Optional[str] = None, write_stats: Optional[WriteStats] = None) -> tuple[List[str], List[str], int]:
     if date is not datetime.now():
         pass
 
@@ -246,7 +339,9 @@ def generate_daily_predictions(storage, model: str = selected_model, date=dateti
     predicted_ids = []
     model = selected_model
     tweet_lines: List[str] = []
-    log_event(stage="generate_daily_predictions", result="started", run_id=run_id)
+    observability_lines: List[str] = []
+    enrichment_mode = get_enrichment_mode()
+    log_event(stage="generate_daily_predictions", result=f"started mode={enrichment_mode}", run_id=run_id)
 
     df = storage.read_predictions()
     required_cols = {"date", "tweeted?", "game_id"}
@@ -267,7 +362,14 @@ def generate_daily_predictions(storage, model: str = selected_model, date=dateti
         for _, row in to_tweet_today.iterrows():
             scheduled_ids.append(row["game_id"])
             predicted_ids.append(row["game_id"])
-            tweet_lines.append(safely_prepare(row))
+            prepared_line = safely_prepare(row)
+            is_valid, reason, normalized = _validate_tweet_line(prepared_line)
+            if not is_valid:
+                _guardrail_warn(reason=reason or "invalid_line", stage="generate_daily_predictions", run_id=run_id, details={"game_id": row.get("game_id"), "line_length": len(normalized)})
+                continue
+            tweet_lines.append(normalized)
+            _, obs_line = gen_game_line_with_observability(row, mode=enrichment_mode)
+            observability_lines.append(obs_line)
 
     all_games, odds_time = get_todays_odds()
     game_predictions: List[Dict] = []
@@ -342,13 +444,32 @@ def generate_daily_predictions(storage, model: str = selected_model, date=dateti
         info["winning_pitcher"] = None
         info["losing_pitcher"] = None
         info["tweeted?"] = False
-        tweet = gen_game_line(info)
+
+        fields_present, missing_fields = _required_line_fields_present(info)
+        if not fields_present:
+            _guardrail_warn(
+                reason="missing_required_fields",
+                stage="generate_daily_predictions",
+                run_id=run_id,
+                details={"game_id": gamePk, "missing_fields": missing_fields},
+            )
+            continue
+
+        tweet, observability_tweet = gen_game_line_with_observability(pd.Series(info), mode=enrichment_mode)
         if len(gameObj) == 3:
             tweet = f"{tweet} ({game['time']})"
-        info["tweet"] = tweet
+            observability_tweet = f"{observability_tweet} ({game['time']})"
+
+        is_valid, reason, normalized = _validate_tweet_line(tweet)
+        if not is_valid:
+            _guardrail_warn(reason=reason or "invalid_line", stage="generate_daily_predictions", run_id=run_id, details={"game_id": gamePk, "line_length": len(normalized)})
+            continue
+
+        info["tweet"] = normalized
         info["time_to_tweet"] = datetime.now().replace(hour=9, minute=45, second=0, microsecond=0).replace(tzinfo=None)
 
-        tweet_lines.append(tweet)
+        tweet_lines.append(normalized)
+        observability_lines.append(observability_tweet)
         game_predictions.append(info)
         log_event(stage="predict_game", game_id=str(gamePk), result="queued_for_tweet", run_id=run_id)
 
@@ -364,15 +485,16 @@ def generate_daily_predictions(storage, model: str = selected_model, date=dateti
     else:
         print(f"{datetime.now(eastern).strftime('%D - %I:%M:%S %p')}... \nNo new predictions made for games\n")
 
-    enrichment_summary = summarize_enrichment_observability(tweet_lines)
+    enrichment_summary = summarize_enrichment_observability(observability_lines if observability_lines else tweet_lines)
     enrichment_summary_payload = json.dumps(enrichment_summary, sort_keys=True)
     print(f"[enrichment-summary] stage=generate_daily_predictions data={enrichment_summary_payload}")
+    _emit_enrichment_threshold_warnings(enrichment_summary, run_id=run_id, stage="generate_daily_predictions")
     log_event(
         stage="generate_daily_predictions",
         result=f"completed: {len(tweet_lines)} tweet lines | enrichment_summary={enrichment_summary_payload}",
         run_id=run_id,
     )
-    return tweet_lines, len(game_predictions)
+    return tweet_lines, (observability_lines if observability_lines else tweet_lines), len(game_predictions)
 
 
 def mark_as_tweeted(tweet: str) -> None:
@@ -401,16 +523,25 @@ def send_tweet(tweet: str) -> bool:
         return False
 
 
-def schedule_tweets(tweet_lines: List[str], run_id: Optional[str] = None) -> int:
+def schedule_tweets(tweet_lines: List[str], run_id: Optional[str] = None, observability_lines: Optional[List[str]] = None) -> tuple[int, Dict[str, object]]:
     global daily_scheduler
     if not tweet_lines or daily_scheduler is None:
-        return 0
-    tweet_lines = unique_tweet_lines(tweet_lines)
-    if not tweet_lines:
-        return 0
+        return 0, summarize_enrichment_observability([])
 
-    tweets = create_tweets(tweet_lines)
-    batching_summary = summarize_enrichment_observability(tweet_lines)
+    filtered_lines: List[str] = []
+    for line in unique_tweet_lines(tweet_lines):
+        is_valid, reason, normalized = _validate_tweet_line(line)
+        if not is_valid:
+            _guardrail_warn(reason=reason or "invalid_line", stage="schedule_tweets", run_id=run_id, details={"line_length": len(normalized)})
+            continue
+        filtered_lines.append(normalized)
+
+    if not filtered_lines:
+        return 0, summarize_enrichment_observability([])
+
+    tweets = create_tweets(filtered_lines)
+    source_lines = observability_lines if observability_lines else filtered_lines
+    batching_summary = summarize_enrichment_observability(source_lines)
     batching_summary["batched_tweets"] = len(tweets)
     batching_summary_payload = json.dumps(batching_summary, sort_keys=True)
     print(f"[enrichment-summary] stage=schedule_tweets data={batching_summary_payload}")
@@ -421,6 +552,8 @@ def schedule_tweets(tweet_lines: List[str], run_id: Optional[str] = None) -> int
     end_time = now.replace(hour=23, minute=59, second=59, microsecond=0)
     delay = 0
     scheduled_jobs = 0
+
+    _emit_enrichment_threshold_warnings(batching_summary, run_id=run_id, stage="schedule_tweets")
 
     for tweet in tweets[::-1]:
         now = datetime.now(eastern)
@@ -435,7 +568,7 @@ def schedule_tweets(tweet_lines: List[str], run_id: Optional[str] = None) -> int
         log_event(stage="schedule_tweets", result="scheduled", game_id=job_id, run_id=run_id)
         delay += 5
         scheduled_jobs += 1
-    return scheduled_jobs
+    return scheduled_jobs, batching_summary
 
 
 def check_and_predict():
@@ -458,19 +591,34 @@ def check_and_predict():
     daily_scheduler.add_listener(print_next_job, EVENT_JOB_EXECUTED)
     daily_scheduler.add_listener(print_next_job, EVENT_JOB_MISSED)
 
-    tweet_lines, predicted_games = generate_daily_predictions(storage=storage, run_id=current_run_id, write_stats=write_stats)
-    scheduled_jobs = schedule_tweets(tweet_lines, run_id=current_run_id)
+    tweet_lines, observability_lines, predicted_games = generate_daily_predictions(storage=storage, run_id=current_run_id, write_stats=write_stats)
+    scheduled_jobs, schedule_summary = schedule_tweets(tweet_lines, run_id=current_run_id, observability_lines=observability_lines)
 
     daily_scheduler.start()
     time.sleep(10)
     daily_scheduler = None
+    threshold_warnings = _emit_enrichment_threshold_warnings(schedule_summary, run_id=current_run_id, stage="run_summary")
     summary = (
         f"run_summary predicted_games={predicted_games} "
         f"scheduled_jobs={scheduled_jobs} "
         f"sqlite_write_successes={write_stats.success} "
-        f"sqlite_write_failures={write_stats.failure}"
+        f"sqlite_write_failures={write_stats.failure} "
+        f"enrichment_mode={get_enrichment_mode()} "
+        f"threshold_warnings={','.join(threshold_warnings) if threshold_warnings else 'none'}"
     )
     print(f"[predict-summary] {summary}")
+    report_payload = {
+        "predicted_games": predicted_games,
+        "scheduled_jobs": scheduled_jobs,
+        "sqlite_write_successes": write_stats.success,
+        "sqlite_write_failures": write_stats.failure,
+        "enrichment_mode": get_enrichment_mode(),
+        "schedule_summary": schedule_summary,
+        "threshold_warnings": threshold_warnings,
+    }
+    report_path = _write_enrichment_report(run_id=current_run_id, report=report_payload)
+    if report_path:
+        log_event(stage="check_and_predict", result=f"report_written={report_path}", run_id=current_run_id)
     log_event(stage="check_and_predict", result=summary, run_id=current_run_id)
     current_run_id = None
 

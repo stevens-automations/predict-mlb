@@ -91,6 +91,43 @@ class TestMismatchAndPhrasing(unittest.TestCase):
         self.assertEqual(tweet_generator._pick_phrase(seed, bank), tweet_generator._pick_phrase(seed, bank))
 
 
+class TestEnrichmentModeBehavior(unittest.TestCase):
+    def _row(self, **overrides):
+        row = {
+            "home": "New York Yankees",
+            "away": "Boston Red Sox",
+            "predicted_winner": "New York Yankees",
+            "home_odds": -120,
+            "away_odds": 110,
+            "favorite": "Boston Red Sox",
+            "prediction_value": 0.66,
+            "game_id": 123,
+            "date": "2026-03-08",
+        }
+        row.update(overrides)
+        return pd.Series(row)
+
+    @patch("server.tweet_generator._load_team_ids", return_value=TEAM_IDS)
+    def test_mode_off_renders_baseline_without_enrichment(self, _mock_ids):
+        rendered, observability = tweet_generator.gen_game_line_with_observability(self._row(), mode="off")
+        self.assertIn(" over ", rendered)
+        self.assertNotIn("[", rendered)
+        self.assertNotIn("|", rendered)
+        self.assertEqual(rendered, observability)
+
+    @patch("server.tweet_generator._load_team_ids", return_value=TEAM_IDS)
+    def test_mode_shadow_renders_baseline_but_observes_enriched(self, _mock_ids):
+        rendered, observability = tweet_generator.gen_game_line_with_observability(self._row(), mode="shadow")
+        self.assertNotIn("[", rendered)
+        self.assertNotIn("|", rendered)
+        self.assertIn("[", observability)
+
+    @patch("server.tweet_generator._load_team_ids", return_value=TEAM_IDS)
+    def test_invalid_mode_falls_back_to_on(self, _mock_ids):
+        rendered = tweet_generator.gen_game_line(self._row(), mode="bad-mode")
+        self.assertIn("[", rendered)
+
+
 class TestObservabilityCounters(unittest.TestCase):
     def test_summary_counts_and_rate(self):
         lines = [

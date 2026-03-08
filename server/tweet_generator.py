@@ -16,6 +16,8 @@ CONFIDENCE_LABELS: Dict[str, str] = {
 }
 DEFAULT_WIN_PHRASE_BANK = ["over", "to beat", "vs"]
 DEFAULT_MISMATCH_LABEL = "value"
+DEFAULT_ENRICHMENT_MODE = "on"
+ENRICHMENT_MODES = {"off", "shadow", "on"}
 
 
 def _to_float(value: object) -> Optional[float]:
@@ -64,6 +66,17 @@ def get_phrase_bank() -> List[str]:
 def get_mismatch_label() -> str:
     label = str(os.getenv("TWEET_MISMATCH_LABEL", DEFAULT_MISMATCH_LABEL)).strip()
     return label or DEFAULT_MISMATCH_LABEL
+
+
+def _parse_enrichment_mode(raw_value: Optional[str]) -> str:
+    mode = str(raw_value or "").strip().lower()
+    if mode in ENRICHMENT_MODES:
+        return mode
+    return DEFAULT_ENRICHMENT_MODE
+
+
+def get_enrichment_mode() -> str:
+    return _parse_enrichment_mode(os.getenv("TWEET_ENRICHMENT_MODE"))
 
 
 def derive_confidence_tier(prediction_value: object) -> str:
@@ -152,7 +165,7 @@ def summarize_enrichment_observability(tweet_lines: List[str]) -> Dict[str, obje
     }
 
 
-def gen_game_line(row: pd.Series) -> str:
+def _winner_loser(row: pd.Series) -> Tuple[str, str, str, str]:
     home = row["home"]
     away = row["away"]
     home_odds = _format_odds(row.get("home_odds"))
@@ -160,25 +173,51 @@ def gen_game_line(row: pd.Series) -> str:
 
     pred = row["predicted_winner"]
     if pred == home:
-        winner, loser = home, away
-        winner_odds, loser_odds = home_odds, away_odds
-    else:
-        winner, loser = away, home
-        winner_odds, loser_odds = away_odds, home_odds
+        return home, away, home_odds, away_odds
+    return away, home, away_odds, home_odds
 
+
+def _abbreviations_for_matchup(winner: str, loser: str) -> Tuple[str, str]:
     data = _load_team_ids()
     winner_id = data["team_to_id"][winner]
-    winner_abb = data["id_to_team"][str(winner_id)]["abbreviation"]
     loser_id = data["team_to_id"][loser]
+    winner_abb = data["id_to_team"][str(winner_id)]["abbreviation"]
     loser_abb = data["id_to_team"][str(loser_id)]["abbreviation"]
+    return winner_abb, loser_abb
+
+
+def _baseline_game_line(row: pd.Series) -> str:
+    winner, loser, winner_odds, loser_odds = _winner_loser(row)
+    winner_abb, loser_abb = _abbreviations_for_matchup(winner, loser)
+    return f"{winner_abb} ({winner_odds}) over {loser_abb} ({loser_odds})".strip()
+
+
+def _enriched_game_line(row: pd.Series) -> str:
+    winner, loser, winner_odds, loser_odds = _winner_loser(row)
+    winner_abb, loser_abb = _abbreviations_for_matchup(winner, loser)
 
     phrase_seed = build_phrase_seed(row, winner, loser)
     verb = _pick_phrase(phrase_seed)
     confidence = _confidence_tag(row.get("prediction_value"))
     mismatch = f" | {get_mismatch_label()}" if has_market_mismatch(row, winner) else ""
+    return f"{winner_abb} ({winner_odds}) {verb} {loser_abb} ({loser_odds}) {confidence}{mismatch}".strip()
 
-    tweet_line = f"{winner_abb} ({winner_odds}) {verb} {loser_abb} ({loser_odds}) {confidence}{mismatch}"
-    return tweet_line.strip()
+
+def gen_game_line_with_observability(row: pd.Series, mode: Optional[str] = None) -> Tuple[str, str]:
+    resolved_mode = _parse_enrichment_mode(mode if mode is not None else get_enrichment_mode())
+    baseline_line = _baseline_game_line(row)
+    enriched_line = _enriched_game_line(row)
+
+    if resolved_mode == "on":
+        return enriched_line, enriched_line
+    if resolved_mode == "shadow":
+        return baseline_line, enriched_line
+    return baseline_line, baseline_line
+
+
+def gen_game_line(row: pd.Series, mode: Optional[str] = None) -> str:
+    rendered_line, _ = gen_game_line_with_observability(row, mode=mode)
+    return rendered_line
 
 
 def create_tweets(tweet_lines: List[str]) -> List[str]:
