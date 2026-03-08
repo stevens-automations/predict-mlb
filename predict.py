@@ -405,7 +405,6 @@ def check_and_predict():
 
     validate_runtime()
     storage = get_primary_storage()
-    storage.bootstrap_if_needed()
     write_stats = WriteStats()
 
     try:

@@ -123,10 +123,10 @@ class SQLitePredictionStorage:
             df = df.drop(columns=["id"])
         return _from_db_frame(df)
 
-    def upsert_predictions(self, df: pd.DataFrame) -> tuple[int, int]:
+    def _upsert_with_connection(self, conn: sqlite3.Connection, df: pd.DataFrame) -> tuple[int, int]:
         if df.empty:
             return (0, 0)
-        self.ensure_ready()
+
         import_df = _to_db_frame(df)
         columns = list(DB_COLUMNS)
         placeholders = ", ".join(["?" for _ in columns])
@@ -144,24 +144,41 @@ class SQLitePredictionStorage:
 
         success = 0
         failure = 0
+        for row in import_df.itertuples(index=False, name=None):
+            try:
+                conn.execute(sql, row)
+                success += 1
+            except Exception as row_exc:
+                failure += 1
+                print(f"[warn] SQLite write failed for a row: {row_exc}")
+        return (success, failure)
+
+    def upsert_predictions(self, df: pd.DataFrame) -> tuple[int, int]:
+        if df.empty:
+            return (0, 0)
+        self.ensure_ready()
         with self._connect() as conn:
-            for row in import_df.itertuples(index=False, name=None):
-                try:
-                    conn.execute(sql, row)
-                    success += 1
-                except Exception as row_exc:
-                    failure += 1
-                    print(f"[warn] SQLite write failed for a row: {row_exc}")
+            success, failure = self._upsert_with_connection(conn, df)
             conn.commit()
         return (success, failure)
 
     def replace_predictions(self, df: pd.DataFrame) -> tuple[int, int]:
         self.ensure_ready()
-        import_df = _to_db_frame(df)
         with self._connect() as conn:
-            conn.execute("DELETE FROM predictions;")
-            conn.commit()
-        return self.upsert_predictions(import_df)
+            try:
+                conn.execute("BEGIN;")
+                conn.execute("DELETE FROM predictions;")
+                success, failure = self._upsert_with_connection(conn, df)
+                if failure > 0:
+                    raise RuntimeError(
+                        f"replace_predictions aborted due to {failure} row write failure(s)"
+                    )
+                conn.commit()
+                return (success, failure)
+            except Exception as exc:
+                conn.rollback()
+                print(f"[warn] SQLite replace_predictions rolled back: {exc}")
+                return (0, len(df))
 
     def mark_tweeted(self, lines: Iterable[str]) -> None:
         self.ensure_ready()
