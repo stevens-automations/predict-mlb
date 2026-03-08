@@ -8,13 +8,12 @@ SQLite is now the runtime source of truth for prediction state.
 - `server/prep_tweet.py` odds refresh path now updates SQLite (no Excel writes in active runtime).
 - Tweet sent state (`tweeted?`) is persisted in SQLite.
 
-## Auto-bootstrap migration rules
+## Runtime storage rules (SQLite-only)
 On startup (`check_and_predict`):
 1. Ensure SQLite schema exists (`ensure_predictions_schema`).
-2. If DB has rows: continue on SQLite.
-3. If DB is empty/missing and Excel file exists at `DATA_SHEET_PATH`: import Excel once into SQLite.
-4. If DB is empty and Excel is missing: continue with empty SQLite DB.
-5. Bootstrap is idempotent; once rows exist in DB, Excel is ignored for runtime state.
+2. Read/write prediction state from SQLite only.
+3. No runtime Excel bootstrap is executed.
+4. Excel import/export remains available only via explicit maintenance scripts/docs.
 
 ## Required config
 - `SQLITE_DB_PATH` (preferred) or `PREDICTIONS_DB_PATH` must be set.
@@ -29,5 +28,19 @@ If emergency rollback to Excel is needed:
 
 ## Safety and consistency notes
 - Writes use SQLite upsert (`ON CONFLICT(game_id,date,model) DO UPDATE`) for idempotency.
-- Full-table replacement writes are transactional (`DELETE` + upsert in same storage workflow).
+- `replace_predictions` now runs in an explicit SQL transaction (`BEGIN`/`COMMIT` + rollback on error).
+- If any row fails during replace, the transaction is fully rolled back (no partial state).
 - Failures are logged with warning lines; no silent row drops.
+
+## Healthcheck
+Run:
+
+```bash
+.venv/bin/python scripts/sqlite_healthcheck.py
+```
+
+Reports:
+- total predictions rows
+- pending unsent tweets count
+- rows with null accuracy
+- recent date coverage summary
