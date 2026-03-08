@@ -9,34 +9,34 @@ import pandas as pd
 from server import prep_tweet
 
 
+class StubStorage:
+    def __init__(self, df):
+        self.df = df
+
+    def read_predictions(self):
+        return self.df
+
+    def replace_predictions(self, df):
+        self.df = df
+        return (len(df), 0)
+
+
 class TestPrepTweetGuardrails(unittest.TestCase):
     @patch("server.prep_tweet.gen_game_line", return_value="fallback tweet")
-    @patch("server.prep_tweet.pd.read_excel")
     @patch("server.prep_tweet.get_todays_odds", return_value=([], "2026-03-08T10:00:00Z"))
-    def test_prepare_missing_game_id_column_returns_generated_line(
-        self, _mock_odds, mock_read_excel, mock_gen_game_line
-    ):
+    def test_prepare_missing_game_id_column_returns_generated_line(self, _mock_odds, mock_gen_game_line):
         game_info = pd.Series({"home": "A", "away": "B", "time": "1:00 PM"})
-        mock_read_excel.return_value = pd.DataFrame({"home": ["A"], "away": ["B"]})
-
-        out = prep_tweet.prepare(game_info)
-
+        with patch("server.prep_tweet.get_primary_storage", return_value=StubStorage(pd.DataFrame({"home": ["A"], "away": ["B"]}))):
+            out = prep_tweet.prepare(game_info)
         self.assertEqual(out, "fallback tweet")
         mock_gen_game_line.assert_called_once()
 
     @patch("server.prep_tweet.gen_game_line", return_value="fallback tweet")
-    @patch("server.prep_tweet.pd.read_excel")
     @patch("server.prep_tweet.get_todays_odds", return_value=([], "2026-03-08T10:00:00Z"))
-    def test_prepare_missing_matching_row_returns_generated_line(
-        self, _mock_odds, mock_read_excel, mock_gen_game_line
-    ):
-        game_info = pd.Series(
-            {"home": "A", "away": "B", "time": "1:00 PM", "game_id": 999}
-        )
-        mock_read_excel.return_value = pd.DataFrame({"game_id": [123], "tweet": [""]})
-
-        out = prep_tweet.prepare(game_info)
-
+    def test_prepare_missing_matching_row_returns_generated_line(self, _mock_odds, mock_gen_game_line):
+        game_info = pd.Series({"home": "A", "away": "B", "time": "1:00 PM", "game_id": 999})
+        with patch("server.prep_tweet.get_primary_storage", return_value=StubStorage(pd.DataFrame({"game_id": [123], "tweet": [""]}))):
+            out = prep_tweet.prepare(game_info)
         self.assertEqual(out, "fallback tweet")
         mock_gen_game_line.assert_called_once()
 
@@ -50,13 +50,7 @@ class FakeScheduler:
         return self.jobs.get(job_id)
 
     def add_job(self, fn, args, trigger, run_date, id, replace_existing):
-        self.jobs[id] = {
-            "fn": fn,
-            "args": args,
-            "trigger": trigger,
-            "run_date": run_date,
-            "replace_existing": replace_existing,
-        }
+        self.jobs[id] = {"fn": fn, "args": args, "trigger": trigger, "run_date": run_date, "replace_existing": replace_existing}
         self.added.append(id)
 
 
@@ -88,7 +82,6 @@ class TestScheduleDeduping(unittest.TestCase):
         stub_runtime.validate_runtime = lambda: None
 
         stub_paths = types.ModuleType("paths")
-        stub_paths.get_env_path = lambda *_args, **_kwargs: "data/predictions.xlsx"
         stub_paths.load_env = lambda: None
 
         stub_reliability = types.ModuleType("reliability_utils")
@@ -97,34 +90,32 @@ class TestScheduleDeduping(unittest.TestCase):
         stub_statsapi = types.ModuleType("statsapi")
         stub_statsapi.schedule = lambda *_args, **_kwargs: []
 
+        stub_storage = types.ModuleType("storage")
+        stub_storage.WriteStats = object
+        stub_storage.get_primary_storage = lambda: None
+
         module_path = "/Users/openclaw/.openclaw/workspace/projects/predict-mlb/predict.py"
         spec = importlib.util.spec_from_file_location("predict_for_tests", module_path)
         module = importlib.util.module_from_spec(spec)
 
-        with patch.dict(
-            sys.modules,
-            {
-                "data": stub_data,
-                "server.tweet_generator": stub_tweet_gen,
-                "server.get_odds": stub_get_odds,
-                "server.prep_tweet": stub_prep,
-                "runtime": stub_runtime,
-                "paths": stub_paths,
-                "reliability_utils": stub_reliability,
-                "statsapi": stub_statsapi,
-            },
-        ):
+        with patch.dict(sys.modules, {
+            "data": stub_data,
+            "server.tweet_generator": stub_tweet_gen,
+            "server.get_odds": stub_get_odds,
+            "server.prep_tweet": stub_prep,
+            "runtime": stub_runtime,
+            "paths": stub_paths,
+            "reliability_utils": stub_reliability,
+            "statsapi": stub_statsapi,
+            "storage": stub_storage,
+        }):
             spec.loader.exec_module(module)  # type: ignore[union-attr]
 
         return module
 
     def test_unique_tweet_lines_strips_bullet_and_dedupes(self):
         predict = self._load_predict_module()
-
-        lines = ["• Yankees ML", "Yankees ML", "• Mets ML", "Mets ML"]
-
-        out = predict.unique_tweet_lines(lines)
-
+        out = predict.unique_tweet_lines(["• Yankees ML", "Yankees ML", "• Mets ML", "Mets ML"])
         self.assertEqual(out, ["Yankees ML", "Mets ML"])
 
     def test_schedule_tweets_idempotent_with_duplicate_lines(self):
@@ -136,7 +127,6 @@ class TestScheduleDeduping(unittest.TestCase):
             predict.schedule_tweets(["• Yankees ML", "Yankees ML"])
             predict.schedule_tweets(["Yankees ML"])
 
-        # first call schedules once; second call skips same job id
         self.assertEqual(len(fake_scheduler.added), 1)
 
 

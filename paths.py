@@ -22,5 +22,7 @@ def get_env_path(name: str, default: str) -> str:
 
 
 def get_predictions_db_path() -> str:
-    """Resolve SQLite path for phase-1 tooling only (runtime still Excel-backed)."""
-    return get_env_path("PREDICTIONS_DB_PATH", "data/predictions.db")
+    """Resolve SQLite path for runtime storage (prefers SQLITE_DB_PATH)."""
+    load_env()
+    value = os.getenv("SQLITE_DB_PATH") or os.getenv("PREDICTIONS_DB_PATH") or "data/predictions.db"
+    return resolve_path(value)

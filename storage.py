@@ -1,39 +1,75 @@
-"""Storage helpers for Excel source-of-truth + optional SQLite shadow writes."""
+"""SQLite-first prediction storage with one-time Excel bootstrap support."""
 
 from __future__ import annotations
 
 import os
 import sqlite3
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Iterable, Optional, Protocol
 
 import pandas as pd  # type: ignore
 
-from sqlite_phase1 import DB_COLUMNS, ensure_predictions_schema
+from paths import get_env_path, get_predictions_db_path
+from sqlite_phase1 import DB_COLUMNS, import_excel_to_sqlite, ensure_predictions_schema
+
+
+def _normalize_tweeted(value: object) -> int:
+    if value is None:
+        return 0
+    if isinstance(value, bool):
+        return int(value)
+    s = str(value).strip().lower()
+    if s in {"1", "true", "t", "yes", "y"}:
+        return 1
+    return 0
+
+
+def _normalize_scalar(value: object) -> object:
+    if pd.isna(value):
+        return None
+    if isinstance(value, pd.Timestamp):
+        return value.to_pydatetime().isoformat()
+    return value
+
+
+def _to_db_frame(df: pd.DataFrame) -> pd.DataFrame:
+    renamed = df.rename(columns={"tweeted?": "tweeted"}).copy()
+    for col in DB_COLUMNS:
+        if col not in renamed.columns:
+            renamed[col] = None
+    out = renamed.loc[:, DB_COLUMNS].copy()
+    out["tweeted"] = out["tweeted"].map(_normalize_tweeted)
+    for col in out.columns:
+        if col == "tweeted":
+            continue
+        out[col] = out[col].map(_normalize_scalar)
+    return out
+
+
+def _from_db_frame(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    if "tweeted" in out.columns:
+        out["tweeted?"] = out["tweeted"].map(lambda v: bool(_normalize_tweeted(v)))
+        out = out.drop(columns=["tweeted"])
+    return out
 
 
 class PredictionStorage(Protocol):
-    """Minimal storage contract for prediction persistence."""
-
-    def read_predictions(self, path: str) -> pd.DataFrame:
+    def bootstrap_if_needed(self) -> bool:
         ...
 
-    def write_predictions(self, path: str, df: pd.DataFrame) -> None:
+    def read_predictions(self) -> pd.DataFrame:
         ...
 
+    def upsert_predictions(self, df: pd.DataFrame) -> tuple[int, int]:
+        ...
 
-class ExcelPredictionStorage:
-    """Excel-backed storage implementation."""
-
-    def read_predictions(self, path: str) -> pd.DataFrame:
-        return pd.read_excel(path)
-
-    def write_predictions(self, path: str, df: pd.DataFrame) -> None:
-        df.to_excel(path, index=False)
+    def replace_predictions(self, df: pd.DataFrame) -> tuple[int, int]:
+        ...
 
 
 @dataclass
-class ShadowWriteStats:
+class WriteStats:
     success: int = 0
     failure: int = 0
 
@@ -42,96 +78,130 @@ class ShadowWriteStats:
         self.failure += failure
 
 
-class SQLiteShadowWriter:
-    """Best-effort SQLite mirror writer (fail-open)."""
+class SQLitePredictionStorage:
+    def __init__(self, db_path: Optional[str] = None, excel_path: Optional[str] = None):
+        self.db_path = db_path or get_predictions_db_path()
+        self.excel_path = excel_path or get_env_path("DATA_SHEET_PATH", "data/predictions.xlsx")
 
-    def __init__(self, db_path: str):
-        self.db_path = db_path
+    def _connect(self) -> sqlite3.Connection:
+        return sqlite3.connect(self.db_path)
 
-    @staticmethod
-    def _normalize_value(value: object) -> object:
-        if pd.isna(value):
-            return None
-        if isinstance(value, pd.Timestamp):
-            return value.to_pydatetime().isoformat()
-        return value
+    def ensure_ready(self) -> None:
+        ensure_predictions_schema(self.db_path)
 
-    @staticmethod
-    def _normalize_tweeted(value: object) -> int:
-        if value is None:
-            return 0
-        if isinstance(value, bool):
-            return int(value)
-        s = str(value).strip().lower()
-        if s in {"1", "true", "t", "yes", "y"}:
-            return 1
-        return 0
+    def _row_count(self) -> int:
+        self.ensure_ready()
+        with self._connect() as conn:
+            return int(conn.execute("SELECT COUNT(*) FROM predictions;").fetchone()[0])
 
-    def _to_db_frame(self, df: pd.DataFrame) -> pd.DataFrame:
-        renamed = df.rename(columns={"tweeted?": "tweeted"}).copy()
-        for col in DB_COLUMNS:
-            if col not in renamed.columns:
-                renamed[col] = None
+    def bootstrap_if_needed(self) -> bool:
+        self.ensure_ready()
+        try:
+            count = self._row_count()
+        except Exception:
+            count = 0
+        if count > 0:
+            return False
+        if not os.path.exists(self.excel_path):
+            return False
+        try:
+            result = import_excel_to_sqlite(self.excel_path, self.db_path, replace=True)
+            print(
+                "[storage] SQLite bootstrap imported "
+                f"{result.imported_rows} rows from Excel ({self.excel_path})."
+            )
+            return result.imported_rows > 0
+        except Exception as exc:
+            print(f"[warn] SQLite bootstrap failed; continuing with empty DB: {exc}")
+            return False
 
-        out = renamed.loc[:, DB_COLUMNS].copy()
-        if "tweeted" in out.columns:
-            out["tweeted"] = out["tweeted"].map(self._normalize_tweeted)
+    def read_predictions(self) -> pd.DataFrame:
+        self.ensure_ready()
+        with self._connect() as conn:
+            df = pd.read_sql_query("SELECT * FROM predictions;", conn)
+        if "id" in df.columns:
+            df = df.drop(columns=["id"])
+        return _from_db_frame(df)
 
-        for col in out.columns:
-            if col == "tweeted":
-                continue
-            out[col] = out[col].map(self._normalize_value)
-        return out
-
-    def mirror_predictions(self, df: pd.DataFrame) -> tuple[int, int]:
+    def upsert_predictions(self, df: pd.DataFrame) -> tuple[int, int]:
         if df.empty:
             return (0, 0)
+        self.ensure_ready()
+        import_df = _to_db_frame(df)
+        columns = list(DB_COLUMNS)
+        placeholders = ", ".join(["?" for _ in columns])
+        update_columns = [c for c in columns if c not in {"game_id", "date", "model"}]
+        update_sql = ", ".join([f"{c}=excluded.{c}" for c in update_columns])
+        sql = (
+            "INSERT INTO predictions ("
+            + ", ".join(columns)
+            + ") VALUES ("
+            + placeholders
+            + ") ON CONFLICT(game_id, date, model) DO UPDATE SET "
+            + update_sql
+            + ";"
+        )
 
-        try:
-            ensure_predictions_schema(self.db_path)
-            import_df = self._to_db_frame(df)
-            columns = list(DB_COLUMNS)
-            placeholders = ", ".join(["?" for _ in columns])
-            update_columns = [c for c in columns if c not in {"game_id", "date", "model"}]
-            update_sql = ", ".join([f"{c}=excluded.{c}" for c in update_columns])
-            sql = (
-                "INSERT INTO predictions ("
-                + ", ".join(columns)
-                + ") VALUES ("
-                + placeholders
-                + ") ON CONFLICT(game_id, date, model) DO UPDATE SET "
-                + update_sql
-                + ";"
-            )
+        success = 0
+        failure = 0
+        with self._connect() as conn:
+            for row in import_df.itertuples(index=False, name=None):
+                try:
+                    conn.execute(sql, row)
+                    success += 1
+                except Exception as row_exc:
+                    failure += 1
+                    print(f"[warn] SQLite write failed for a row: {row_exc}")
+            conn.commit()
+        return (success, failure)
 
-            success = 0
-            failure = 0
-            with sqlite3.connect(self.db_path) as conn:
-                for row in import_df.itertuples(index=False, name=None):
-                    try:
-                        conn.execute(sql, row)
-                        success += 1
-                    except Exception as row_exc:
-                        failure += 1
-                        print(f"[warn] SQLite shadow write failed for a row: {row_exc}")
-                conn.commit()
-            return (success, failure)
-        except Exception as exc:
-            print(f"[warn] SQLite shadow write unavailable, continuing with Excel only: {exc}")
-            return (0, len(df))
+    def replace_predictions(self, df: pd.DataFrame) -> tuple[int, int]:
+        self.ensure_ready()
+        import_df = _to_db_frame(df)
+        with self._connect() as conn:
+            conn.execute("DELETE FROM predictions;")
+            conn.commit()
+        return self.upsert_predictions(import_df)
+
+    def mark_tweeted(self, lines: Iterable[str]) -> None:
+        self.ensure_ready()
+        with self._connect() as conn:
+            for line in lines:
+                conn.execute(
+                    "UPDATE predictions SET tweeted = 1 WHERE tweet = ?;",
+                    (line,),
+                )
+            conn.commit()
 
 
 class NullShadowWriter:
-    def mirror_predictions(self, df: pd.DataFrame) -> tuple[int, int]:
+    def mirror_predictions(self, _df):
         return (0, 0)
+
+
+class CompatibilityShadowWriter:
+    def mirror_predictions(self, df):
+        return self.storage.upsert_predictions(df)
+
+    def __init__(self, storage: SQLitePredictionStorage):
+        self.storage = storage
 
 
 def sqlite_shadow_enabled() -> bool:
     return os.getenv("SQLITE_SHADOW_WRITE", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
-def shadow_writer_from_env() -> SQLiteShadowWriter | NullShadowWriter:
-    if not sqlite_shadow_enabled():
-        return NullShadowWriter()
-    db_path = os.getenv("SQLITE_DB_PATH", "data/predictions.db")
-    return SQLiteShadowWriter(db_path=db_path)
+def shadow_writer_from_env():
+    if sqlite_shadow_enabled():
+        return CompatibilityShadowWriter(get_primary_storage())
+    return NullShadowWriter()
+
+
+def get_primary_storage() -> SQLitePredictionStorage:
+    db_path = get_predictions_db_path()
+    excel_path = get_env_path("DATA_SHEET_PATH", "data/predictions.xlsx")
+    return SQLitePredictionStorage(db_path=db_path, excel_path=excel_path)
+
+
+# Backwards compatibility name used by prior tests/docs.
+ShadowWriteStats = WriteStats
