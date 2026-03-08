@@ -14,7 +14,8 @@ CONFIDENCE_LABELS: Dict[str, str] = {
     "medium": "M",
     "low": "L",
 }
-WIN_PHRASE_BANK = ["over", "to beat", "vs"]
+DEFAULT_WIN_PHRASE_BANK = ["over", "to beat", "vs"]
+DEFAULT_MISMATCH_LABEL = "value"
 
 
 def _to_float(value: object) -> Optional[float]:
@@ -44,6 +45,25 @@ def _parse_confidence_thresholds() -> Tuple[float, float]:
     except (ValueError, TypeError):
         pass
     return DEFAULT_CONFIDENCE_THRESHOLDS
+
+
+def _parse_phrase_bank(raw_value: Optional[str]) -> List[str]:
+    if not raw_value:
+        return list(DEFAULT_WIN_PHRASE_BANK)
+    phrases = [part.strip() for part in raw_value.split(",")]
+    filtered = [phrase for phrase in phrases if phrase]
+    if not filtered:
+        return list(DEFAULT_WIN_PHRASE_BANK)
+    return filtered
+
+
+def get_phrase_bank() -> List[str]:
+    return _parse_phrase_bank(os.getenv("TWEET_PHRASE_BANK", ""))
+
+
+def get_mismatch_label() -> str:
+    label = str(os.getenv("TWEET_MISMATCH_LABEL", DEFAULT_MISMATCH_LABEL)).strip()
+    return label or DEFAULT_MISMATCH_LABEL
 
 
 def derive_confidence_tier(prediction_value: object) -> str:
@@ -94,10 +114,42 @@ def has_market_mismatch(row: pd.Series, predicted_winner: str) -> bool:
     return favorite in {home, away}
 
 
-def _pick_phrase(seed: str) -> str:
+def build_phrase_seed(row: pd.Series, winner: str, loser: str) -> str:
+    return f"{row.get('game_id', '')}:{winner}:{loser}:{row.get('date', '')}"
+
+
+def _pick_phrase(seed: str, phrase_bank: Optional[List[str]] = None) -> str:
+    bank = phrase_bank or get_phrase_bank()
+    if not bank:
+        bank = list(DEFAULT_WIN_PHRASE_BANK)
     digest = hashlib.sha1(seed.encode("utf-8")).hexdigest()
-    idx = int(digest[:8], 16) % len(WIN_PHRASE_BANK)
-    return WIN_PHRASE_BANK[idx]
+    idx = int(digest[:8], 16) % len(bank)
+    return bank[idx]
+
+
+def summarize_enrichment_observability(tweet_lines: List[str]) -> Dict[str, object]:
+    tier_counts = {"H": 0, "M": 0, "L": 0}
+    mismatch_count = 0
+
+    for line in tweet_lines:
+        if "[H]" in line:
+            tier_counts["H"] += 1
+        elif "[M]" in line:
+            tier_counts["M"] += 1
+        elif "[L]" in line:
+            tier_counts["L"] += 1
+
+        if "|" in line:
+            mismatch_count += 1
+
+    total = len(tweet_lines)
+    mismatch_rate = (mismatch_count / total) if total else 0.0
+    return {
+        "total_game_lines": total,
+        "confidence_tier_distribution": tier_counts,
+        "mismatch_count": mismatch_count,
+        "mismatch_rate": round(mismatch_rate, 4),
+    }
 
 
 def gen_game_line(row: pd.Series) -> str:
@@ -120,10 +172,10 @@ def gen_game_line(row: pd.Series) -> str:
     loser_id = data["team_to_id"][loser]
     loser_abb = data["id_to_team"][str(loser_id)]["abbreviation"]
 
-    phrase_seed = f"{row.get('game_id', '')}:{winner}:{loser}:{row.get('date', '')}"
+    phrase_seed = build_phrase_seed(row, winner, loser)
     verb = _pick_phrase(phrase_seed)
     confidence = _confidence_tag(row.get("prediction_value"))
-    mismatch = " | value" if has_market_mismatch(row, winner) else ""
+    mismatch = f" | {get_mismatch_label()}" if has_market_mismatch(row, winner) else ""
 
     tweet_line = f"{winner_abb} ({winner_odds}) {verb} {loser_abb} ({loser_odds}) {confidence}{mismatch}"
     return tweet_line.strip()

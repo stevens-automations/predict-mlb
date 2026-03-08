@@ -1,4 +1,9 @@
-from server.tweet_generator import gen_result_tweet, gen_game_line, create_tweets
+from server.tweet_generator import (
+    gen_result_tweet,
+    gen_game_line,
+    create_tweets,
+    summarize_enrichment_observability,
+)
 from apscheduler.schedulers.background import BlockingScheduler  # type: ignore
 from apscheduler.events import (
     EVENT_SCHEDULER_STARTED,
@@ -359,7 +364,14 @@ def generate_daily_predictions(storage, model: str = selected_model, date=dateti
     else:
         print(f"{datetime.now(eastern).strftime('%D - %I:%M:%S %p')}... \nNo new predictions made for games\n")
 
-    log_event(stage="generate_daily_predictions", result=f"completed: {len(tweet_lines)} tweet lines", run_id=run_id)
+    enrichment_summary = summarize_enrichment_observability(tweet_lines)
+    enrichment_summary_payload = json.dumps(enrichment_summary, sort_keys=True)
+    print(f"[enrichment-summary] stage=generate_daily_predictions data={enrichment_summary_payload}")
+    log_event(
+        stage="generate_daily_predictions",
+        result=f"completed: {len(tweet_lines)} tweet lines | enrichment_summary={enrichment_summary_payload}",
+        run_id=run_id,
+    )
     return tweet_lines, len(game_predictions)
 
 
@@ -398,6 +410,12 @@ def schedule_tweets(tweet_lines: List[str], run_id: Optional[str] = None) -> int
         return 0
 
     tweets = create_tweets(tweet_lines)
+    batching_summary = summarize_enrichment_observability(tweet_lines)
+    batching_summary["batched_tweets"] = len(tweets)
+    batching_summary_payload = json.dumps(batching_summary, sort_keys=True)
+    print(f"[enrichment-summary] stage=schedule_tweets data={batching_summary_payload}")
+    log_event(stage="schedule_tweets", result=f"batching_summary={batching_summary_payload}", run_id=run_id)
+
     now = datetime.now(eastern)
     start_time = now.replace(hour=9, minute=45, second=0, microsecond=0)
     end_time = now.replace(hour=23, minute=59, second=59, microsecond=0)

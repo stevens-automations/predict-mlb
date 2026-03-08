@@ -29,6 +29,22 @@ class TestConfidenceTiering(unittest.TestCase):
             self.assertEqual(tweet_generator.derive_confidence_tier(0.76), "high")
 
 
+class TestEnvConfigurability(unittest.TestCase):
+    def test_phrase_bank_parsing_fallbacks(self):
+        with patch.dict(os.environ, {"TWEET_PHRASE_BANK": ""}, clear=False):
+            self.assertEqual(tweet_generator.get_phrase_bank(), tweet_generator.DEFAULT_WIN_PHRASE_BANK)
+
+        with patch.dict(os.environ, {"TWEET_PHRASE_BANK": " , ,  "}, clear=False):
+            self.assertEqual(tweet_generator.get_phrase_bank(), tweet_generator.DEFAULT_WIN_PHRASE_BANK)
+
+        with patch.dict(os.environ, {"TWEET_PHRASE_BANK": "smash, edge past , outlast"}, clear=False):
+            self.assertEqual(tweet_generator.get_phrase_bank(), ["smash", "edge past", "outlast"])
+
+    def test_mismatch_label_fallback(self):
+        with patch.dict(os.environ, {"TWEET_MISMATCH_LABEL": ""}, clear=False):
+            self.assertEqual(tweet_generator.get_mismatch_label(), "value")
+
+
 class TestMismatchAndPhrasing(unittest.TestCase):
     def _row(self, **overrides):
         row = {
@@ -51,6 +67,12 @@ class TestMismatchAndPhrasing(unittest.TestCase):
         self.assertIn("| value", line)
 
     @patch("server.tweet_generator._load_team_ids", return_value=TEAM_IDS)
+    def test_custom_mismatch_label_used(self, _mock_ids):
+        with patch.dict(os.environ, {"TWEET_MISMATCH_LABEL": "market"}, clear=False):
+            line = tweet_generator.gen_game_line(self._row())
+            self.assertIn("| market", line)
+
+    @patch("server.tweet_generator._load_team_ids", return_value=TEAM_IDS)
     def test_market_mismatch_omitted_when_prediction_matches_favorite(self, _mock_ids):
         line = tweet_generator.gen_game_line(self._row(favorite="New York Yankees"))
         self.assertNotIn("| value", line)
@@ -61,6 +83,27 @@ class TestMismatchAndPhrasing(unittest.TestCase):
         line1 = tweet_generator.gen_game_line(row)
         line2 = tweet_generator.gen_game_line(row)
         self.assertEqual(line1, line2)
+
+    def test_phrase_selection_stable_for_same_seed_and_bank(self):
+        row = self._row(game_id=999)
+        seed = tweet_generator.build_phrase_seed(row, "New York Yankees", "Boston Red Sox")
+        bank = ["over", "to beat", "vs", "outlast"]
+        self.assertEqual(tweet_generator._pick_phrase(seed, bank), tweet_generator._pick_phrase(seed, bank))
+
+
+class TestObservabilityCounters(unittest.TestCase):
+    def test_summary_counts_and_rate(self):
+        lines = [
+            "NYY (-120) over BOS (+110) [H] | value",
+            "NYY (-120) over BOS (+110) [M]",
+            "NYY (-120) over BOS (+110) [L] | value",
+            "NYY (-120) over BOS (+110) [H]",
+        ]
+        summary = tweet_generator.summarize_enrichment_observability(lines)
+        self.assertEqual(summary["total_game_lines"], 4)
+        self.assertEqual(summary["confidence_tier_distribution"], {"H": 2, "M": 1, "L": 1})
+        self.assertEqual(summary["mismatch_count"], 2)
+        self.assertEqual(summary["mismatch_rate"], 0.5)
 
 
 class TestTweetLengthSafety(unittest.TestCase):

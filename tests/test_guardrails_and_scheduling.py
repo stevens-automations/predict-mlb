@@ -71,6 +71,12 @@ class TestScheduleDeduping(unittest.TestCase):
         stub_tweet_gen.gen_result_tweet = lambda *args, **kwargs: ""
         stub_tweet_gen.gen_game_line = lambda *args, **kwargs: ""
         stub_tweet_gen.create_tweets = lambda lines: ["\n".join(lines)]
+        stub_tweet_gen.summarize_enrichment_observability = lambda lines: {
+            "total_game_lines": len(lines),
+            "confidence_tier_distribution": {"H": 0, "M": 0, "L": 0},
+            "mismatch_count": 0,
+            "mismatch_rate": 0.0,
+        }
 
         stub_get_odds = types.ModuleType("server.get_odds")
         stub_get_odds.get_todays_odds = lambda: ([], "")
