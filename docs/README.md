@@ -22,6 +22,7 @@ This docs set is optimized for **current operations**, **readability**, and **fu
 
 - `docs/research/historical-mlb-ingestion-architecture.md` — historical ingestion architecture + scaffold status
 - `docs/research/accuracy-improvement-memo.md` — ranked improvement options (no full model overhaul)
+- `docs/research/feature-contract-v1.md` — canonical feature contract for 2020-2025 backfill and daily inference
 
 ## Archive
 
