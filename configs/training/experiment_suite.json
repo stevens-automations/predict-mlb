@@ -1,0 +1,76 @@
+{
+  "base": {
+    "data": {
+      "db_path": "data/mlb_history.db",
+      "feature_version": "v1",
+      "seasons": [
+        2020,
+        2021,
+        2022
+      ],
+      "contract_statuses": [
+        "valid",
+        "degraded"
+      ]
+    },
+    "evaluation": {
+      "walk_forward": {
+        "min_train_samples": 750,
+        "test_size": 250,
+        "step_size": 250,
+        "gap": 0,
+        "max_splits": 6
+      }
+    },
+    "registry": {
+      "root_dir": "artifacts/model_registry"
+    }
+  },
+  "experiments": [
+    {
+      "experiment": {
+        "name": "baseline_walk_forward_v1"
+      },
+      "model": {
+        "trainer": "lgbm",
+        "name": "lgbm_baseline",
+        "params": {
+          "objective": "binary",
+          "metric": "binary_logloss",
+          "learning_rate": 0.05,
+          "num_leaves": 31,
+          "feature_fraction": 0.9,
+          "bagging_fraction": 0.9,
+          "bagging_freq": 1,
+          "min_data_in_leaf": 40,
+          "verbose": -1,
+          "num_boost_round": 300
+        }
+      }
+    },
+    {
+      "experiment": {
+        "name": "stronger_walk_forward_v1"
+      },
+      "model": {
+        "trainer": "lgbm",
+        "name": "lgbm_stronger_placeholder",
+        "params": {
+          "objective": "binary",
+          "metric": "binary_logloss",
+          "learning_rate": 0.03,
+          "num_leaves": 63,
+          "feature_fraction": 0.85,
+          "bagging_fraction": 0.85,
+          "bagging_freq": 1,
+          "min_data_in_leaf": 25,
+          "lambda_l1": 0.5,
+          "lambda_l2": 0.5,
+          "verbose": -1,
+          "num_boost_round": 500
+        }
+      }
+    }
+  ]
+}
+
