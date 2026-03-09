@@ -6,7 +6,8 @@ This docs set is optimized for **current operations**, **readability**, and **fu
 
 1. `docs/STATUS.md` — current implemented state and known gaps
 2. `docs/PLAN.md` — prioritized remaining work and acceptance gates
-3. `docs/day0-launch-reliability-checklist.md` — go-live/rehearsal checks
+3. `docs/decisions.md` — active open decisions for fast unblock
+4. `docs/day0-launch-reliability-checklist.md` — go-live/rehearsal checks
 
 ## Operational Guides
 
