@@ -16,9 +16,11 @@ This docs set is optimized for **current operations**, **readability**, and **fu
 - `docs/preseason-replay-explanation-schema.md` — explanation guardrails contract
 - `docs/sqlite-cutover.md` — SQLite cutover summary
 - `docs/sqlite-operating-runbook.md` — SQLite runtime operations
+- `docs/runbooks/historical-ingestion-runbook.md` — scaffold-phase historical ingestion runbook
 
 ## Research / Strategy
 
+- `docs/research/historical-mlb-ingestion-architecture.md` — historical ingestion architecture + scaffold status
 - `docs/research/accuracy-improvement-memo.md` — ranked improvement options (no full model overhaul)
 
 ## Archive

@@ -15,40 +15,36 @@ Branch intent: `staging/preseason-consolidated` is the integration branch; `main
 - Transactional replace/upsert safety and rollback behavior covered by tests.
 - SQLite healthcheck utility and operating runbook available.
 
-### Simulation / Preseason Testing
-- Deterministic simulation mode with fixture-backed game/prediction replay.
-- Optional seed-controlled deterministic ordering (`PREDICT_SIM_SEED`).
-- Dry-run / no-post behavior for safe rehearsal.
+### Historical Ingestion Foundation (new)
+- Added scaffold CLI: `scripts/history_ingest.py` with subcommands:
+  - `init-db`
+  - `backfill` (safe stub)
+  - `incremental` (safe stub)
+  - `dq`
+- Added canonical historical schema SQL at `scripts/sql/history_schema.sql`.
+- Added run/checkpoint ledger skeleton in DB (`ingestion_runs`, `ingestion_checkpoints`).
+- Added idempotent upsert helpers scaffold (`games`, checkpoints).
+- Added quick tests for schema initialization + checkpoint idempotency + game upsert behavior.
 
-### Prediction Quality Guardrails
-- Anomaly warning gating requires rate breach + minimum sample/count thresholds.
-- Configurable warning thresholds via env vars.
+## Newly Aligned Direction (encoded)
 
-### Explanation Layer Guardrails
-- Structured explanation schema + validation contract.
-- Unsupported evidence sources dropped/rejected per allowlist.
-
-### Testing
-- Unit/integration-style tests for reliability, simulation mode, guardrails, storage transactions, and healthcheck.
-- Current suite passes in project venv (`45 passed`).
-
-## Newly Aligned Direction
-
-- We are **not** trying to replicate legacy Excel outputs as the main objective.
-- We are building a robust historical stats foundation from `statsapi` for iterative new-model development.
-- Historical source of truth will be local SQLite at `data/mlb_history.db`.
-- Initial backfill scope is `2020–2025`, then extend if useful.
-- Data policy is strict quality enforcement with **degraded fallback predictions**, incident logging, and root-cause fixes (not silent game skipping).
+- Canonical historical store is SQLite at `data/mlb_history.db`.
+- Backfill scope target is seasons `2020–2025`.
+- Historical odds backfill is out-of-scope (odds are forward-only capture during season).
+- Data policy is strict contracts with degraded fallback predictions (no silent game skipping).
+- Ingestion reliability posture: bounded retries/backoff, request budget, checkpoint resume.
+- Incremental cadence starts with **pre-game + post-game** only.
+- Primary model metric starts with **log loss**.
 
 ## Known Constraints / Open Gaps
 
-1. Historical ingestion pipeline (`history_ingest`) is planned but not implemented yet.
-2. Historical training dataset is not yet materialized in the new DB.
-3. Model experimentation framework is partially scaffolded but still anchored to older assumptions.
-4. Data reliability contract tables/rules are not yet codified in code.
-5. Circuit-breaker state is process-memory scoped (not persisted across restart).
+1. `backfill` and `incremental` are intentionally safe stubs (no full historical pull yet).
+2. Historical training dataset is not yet materialized in `data/mlb_history.db`.
+3. Full statsapi fetch loop, contract evaluators, and DQ checks are scaffolded but not fully implemented.
+4. Odds snapshot table exists but should remain forward-only until explicit policy change.
 
 ## Non-Goals (current phase)
 
+- No long-running historical ingestion/backfill execution during scaffold phase.
+- No historical odds backfill.
 - No rushed promotion to `main` before staging validation and acceptance gates are complete.
-- No full architecture rewrite before foundational ingestion + experimentation loop is established.

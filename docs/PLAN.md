@@ -2,37 +2,40 @@
 
 Last updated: 2026-03-09
 
-## Priority 1 — Implement Historical Ingestion Foundation (statsapi -> SQLite)
+## Priority 1 — Activate Historical Ingestion Beyond Scaffold
 
-Build `scripts/history_ingest.py` and schema for `data/mlb_history.db` with:
-- Canonical tables (`games`, `team_game_stats`, `pitcher_game_context`, `odds_snapshots`, `feature_snapshots`)
-- Run/checkpoint tracking (`ingestion_runs`, `ingestion_checkpoints`)
-- Idempotent upserts and resumable partition processing
+Current scaffold exists at `scripts/history_ingest.py` and schema at `scripts/sql/history_schema.sql`.
+
+Next implementation step:
+- Replace safe stubs in `backfill` / `incremental` with bounded statsapi execution loops.
+- Preserve checkpointed resume semantics and request budget controls to minimize statsapi calls.
+- Keep odds ingestion forward-only.
+- Keep incremental cadence at pre-game + post-game only for v1.
 
 ### Acceptance criteria
-- One sample month ingests successfully.
-- Re-run of same partition creates no duplicates and stable row counts.
-- Checkpoint resume works after interruption.
+- Controlled sample partition pull succeeds (one month or one season slice).
+- Re-run of same partition is idempotent (stable counts, no duplicate PK rows).
+- Checkpoint resume works after forced interruption.
 
 ---
 
 ## Priority 2 — Backfill Historical Dataset (2020–2025)
 
-Run controlled season-by-season backfill with retry/backoff/circuit policies and DQ checks.
+Run explicit, approved season-by-season backfill.
 
 ### Acceptance criteria
-- Seasons 2020–2025 completed or explicitly marked with actionable blocked reasons.
-- DQ summaries produced per partition.
-- Feature snapshot coverage reaches agreed threshold for final games.
+- Seasons 2020–2025 complete or marked blocked with actionable reasons.
+- Partition-level run records and checkpoints are complete.
+- No silent game skips; degraded fallback reasons are logged.
 
 ---
 
 ## Priority 3 — Data Reliability Contract + Degraded Prediction Mode
 
 Implement strict input contracts with explicit must-have vs optional fields.
-- Must-have failures trigger degraded-mode prediction path (not silent skip)
-- Each degraded prediction emits reason codes + incident records
-- Recurring failures become fix-queue items
+- Must-have failures trigger degraded-mode prediction path (not silent skip).
+- Degraded predictions emit reason codes + incident records.
+- Recurring failures flow into fix queue.
 
 ### Acceptance criteria
 - Contract checks run pre-prediction.
@@ -41,27 +44,26 @@ Implement strict input contracts with explicit must-have vs optional fields.
 
 ---
 
-## Priority 4 — Exploratory Model Lab (Not Legacy Replication)
+## Priority 4 — DQ Framework + Experiment Loop
 
-Create iterative training/evaluation workflow on historical DB:
-- Start with recommended primary metric: **log loss**
-- Track secondary: Brier, calibration, accuracy
-- Compare multiple candidates and feature-set versions
+- Expand `dq` from placeholder to full checks (completeness, null thresholds, duplicate guards, freshness).
+- Materialize training datasets from `feature_rows` + `labels`.
+- Start experiment loop with **log loss** as primary metric.
 
 ### Acceptance criteria
-- Experiment matrix and reports are reproducible.
-- At least baseline + one stronger candidate trained/evaluated on walk-forward splits.
-- Promotion candidates include reliability feasibility assessment.
+- DQ report artifacts generated per run.
+- Reproducible baseline + challenger experiments completed.
+- Model comparison includes reliability feasibility notes.
 
 ---
 
 ## Priority 5 — Safe Promotion Gates on Staging
 
 Gate any production promotion on:
-- ingestion/data-quality health
-- model quality improvements
-- operational reliability checks
-- rollback readiness
+- ingestion/data-quality health,
+- model quality improvements,
+- operational reliability checks,
+- rollback readiness.
 
 ### Acceptance criteria
 - Explicit go/no-go decision documented.
