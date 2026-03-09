@@ -36,9 +36,9 @@ RELEVANT_STATUSES = FINAL_STATUSES | {
     "Scheduled",
 }
 RELEVANT_GAME_TYPES = {"R", "F", "D", "L", "W"}
-PITCHER_CONTEXT_JOB = "pitcher-context-2020"
-FEATURE_ROWS_JOB = "feature-rows-v1-2020"
 FEATURE_VERSION_V1 = "v1"
+MIN_SUPPORTED_SEASON = 2020
+MAX_SUPPORTED_SEASON = 2025
 
 
 @dataclass(frozen=True)
@@ -118,6 +118,22 @@ class PartitionIngestStats:
             "labels_updated": self.labels_updated,
             "final_distinct_counts_snapshot": asdict(self.final_distinct_counts_snapshot),
         }
+
+
+def validate_supported_season(season: int) -> int:
+    if not (MIN_SUPPORTED_SEASON <= season <= MAX_SUPPORTED_SEASON):
+        raise ValueError(
+            f"season must be between {MIN_SUPPORTED_SEASON} and {MAX_SUPPORTED_SEASON} (got {season})"
+        )
+    return season
+
+
+def pitcher_context_job_name(season: int) -> str:
+    return f"pitcher-context-{season}"
+
+
+def feature_rows_job_name(season: int, feature_version: str) -> str:
+    return f"feature-rows-{feature_version}-{season}"
 
 
 def utc_now() -> str:
@@ -1070,36 +1086,39 @@ def build_pitcher_context_rows(
     return rows
 
 
-def cmd_backfill_pitcher_context_2020(args: argparse.Namespace) -> None:
+def cmd_backfill_pitcher_context(args: argparse.Namespace) -> None:
+    season = validate_supported_season(args.season)
+    job_name = pitcher_context_job_name(season)
     config = build_config(args)
     budget = RequestBudget(limit=config.request_policy.request_budget_per_run)
-    partition_key = "season=2020"
+    partition_key = f"season={season}"
     with connect_db(config.db_path) as conn:
         ensure_schema(conn)
-        run_id = start_run(conn, "backfill", partition_key=f"{PITCHER_CONTEXT_JOB}:{partition_key}", config=config)
+        run_id = start_run(conn, "backfill", partition_key=f"{job_name}:{partition_key}", config=config)
         last_game_id: int | None = None
         try:
-            games_2020 = conn.execute(
-                "SELECT game_id, game_date FROM games WHERE season=2020 ORDER BY game_date, game_id"
+            games_for_season = conn.execute(
+                "SELECT game_id, game_date FROM games WHERE season=? ORDER BY game_date, game_id",
+                (season,),
             ).fetchall()
-            game_ids = [int(row["game_id"]) for row in games_2020]
+            game_ids = [int(row["game_id"]) for row in games_for_season]
             if not game_ids:
-                note = format_run_observability({"job": PITCHER_CONTEXT_JOB, "season": 2020, "games_seen": 0})
+                note = format_run_observability({"job": job_name, "season": season, "games_seen": 0})
                 upsert_checkpoint(
                     conn,
-                    job_name=PITCHER_CONTEXT_JOB,
+                    job_name=job_name,
                     partition_key=partition_key,
-                    cursor={"season": 2020, "games_seen": 0, "rows_upserted": 0},
+                    cursor={"season": season, "games_seen": 0, "rows_upserted": 0},
                     status="success",
                 )
                 finish_run(conn, run_id, "success", note=note, request_count=budget.used)
                 print(f"Pitcher context backfill complete for {partition_key}: {note}")
                 return
 
-            existing_identity_by_game_id = _existing_pitcher_identity_rows(conn, 2020)
+            existing_identity_by_game_id = _existing_pitcher_identity_rows(conn, season)
             schedule_fallback_used = False
             try:
-                schedule_rows = fetch_schedule_bounded(config.request_policy, budget, season=2020, sportId=1)
+                schedule_rows = fetch_schedule_bounded(config.request_policy, budget, season=season, sportId=1)
                 schedule_by_game_id = {
                     _to_int(row.get("game_id")): row for row in schedule_rows if _to_int(row.get("game_id")) is not None
                 }
@@ -1112,14 +1131,16 @@ def cmd_backfill_pitcher_context_2020(args: argparse.Namespace) -> None:
                     merged.update(schedule_by_game_id.get(game_id, {}))
                     schedule_by_game_id[game_id] = merged
             if not schedule_by_game_id and game_ids:
-                raise RuntimeError("unable to source 2020 probable pitcher identities from statsapi or existing DB rows")
+                raise RuntimeError(
+                    f"unable to source probable pitcher identities for season {season} from statsapi or existing DB rows"
+                )
 
             lookup_cache: dict[str, int | None] = {}
             prior_pitcher_aggregates: dict[int, dict[str, Any]] = {}
             boxscore_cache: dict[int, dict[str, Any]] = {}
             boxscore_fallback_used = False
             rows_upserted = 0
-            for idx, db_game in enumerate(games_2020, start=1):
+            for idx, db_game in enumerate(games_for_season, start=1):
                 game_id = int(db_game["game_id"])
                 game_date = str(db_game["game_date"])
                 schedule_row = schedule_by_game_id.get(game_id, {})
@@ -1127,7 +1148,7 @@ def cmd_backfill_pitcher_context_2020(args: argparse.Namespace) -> None:
                     game_id,
                     game_date,
                     schedule_row,
-                    2020,
+                    season,
                     lookup_cache,
                     prior_pitcher_aggregates,
                     config.request_policy,
@@ -1148,16 +1169,16 @@ def cmd_backfill_pitcher_context_2020(args: argparse.Namespace) -> None:
                 if config.checkpoint_every > 0 and idx % config.checkpoint_every == 0:
                     upsert_checkpoint(
                         conn,
-                        job_name=PITCHER_CONTEXT_JOB,
+                        job_name=job_name,
                         partition_key=partition_key,
-                        cursor={"season": 2020, "games_seen": idx, "rows_upserted": rows_upserted},
+                        cursor={"season": season, "games_seen": idx, "rows_upserted": rows_upserted},
                         status="running",
                         last_game_id=last_game_id,
                     )
 
             cursor = {
-                "season": 2020,
-                "games_seen": len(games_2020),
+                "season": season,
+                "games_seen": len(games_for_season),
                 "rows_upserted": rows_upserted,
                 "distinct_pitchers_cached": len(prior_pitcher_aggregates),
                 "schedule_fallback_used": schedule_fallback_used,
@@ -1165,22 +1186,22 @@ def cmd_backfill_pitcher_context_2020(args: argparse.Namespace) -> None:
             }
             upsert_checkpoint(
                 conn,
-                job_name=PITCHER_CONTEXT_JOB,
+                job_name=job_name,
                 partition_key=partition_key,
                 cursor=cursor,
                 status="success",
                 last_game_id=last_game_id,
             )
-            note = format_run_observability({"job": PITCHER_CONTEXT_JOB, **cursor})
+            note = format_run_observability({"job": job_name, **cursor})
             finish_run(conn, run_id, "success", note=note, request_count=budget.used)
             print(f"Pitcher context backfill complete for {partition_key}: {note}")
         except Exception as exc:
             error = str(exc)
             upsert_checkpoint(
                 conn,
-                job_name=PITCHER_CONTEXT_JOB,
+                job_name=job_name,
                 partition_key=partition_key,
-                cursor={"season": 2020},
+                cursor={"season": season},
                 status="failed",
                 last_error=error,
                 last_game_id=last_game_id,
@@ -1307,11 +1328,10 @@ def _update_team_state(
 
 
 def cmd_materialize_feature_rows(args: argparse.Namespace) -> None:
-    if args.season != 2020:
-        raise ValueError("feature row materialization is restricted to season 2020 only")
-
+    season = validate_supported_season(args.season)
+    job_name = feature_rows_job_name(season, args.feature_version)
     config = build_config(args)
-    partition_key = f"feature-rows-season={args.season}:version={args.feature_version}"
+    partition_key = f"feature-rows-season={season}:version={args.feature_version}"
     with connect_db(config.db_path) as conn:
         ensure_schema(conn)
         run_id = start_run(conn, "backfill", partition_key=partition_key, config=config)
@@ -1324,7 +1344,7 @@ def cmd_materialize_feature_rows(args: argparse.Namespace) -> None:
                 WHERE season = ?
                 ORDER BY game_date, game_id
                 """,
-                (args.season,),
+                (season,),
             ).fetchall()
             team_stats_rows = conn.execute(
                 """
@@ -1334,7 +1354,7 @@ def cmd_materialize_feature_rows(args: argparse.Namespace) -> None:
                 INNER JOIN games ON games.game_id = game_team_stats.game_id
                 WHERE games.season = ?
                 """,
-                (args.season,),
+                (season,),
             ).fetchall()
             pitcher_rows = conn.execute(
                 """
@@ -1343,7 +1363,7 @@ def cmd_materialize_feature_rows(args: argparse.Namespace) -> None:
                 INNER JOIN games ON games.game_id = game_pitcher_context.game_id
                 WHERE games.season = ?
                 """,
-                (args.season,),
+                (season,),
             ).fetchall()
             labels = {
                 int(row["game_id"]): row
@@ -1354,7 +1374,7 @@ def cmd_materialize_feature_rows(args: argparse.Namespace) -> None:
                     INNER JOIN games ON games.game_id = labels.game_id
                     WHERE games.season = ?
                     """,
-                    (args.season,),
+                    (season,),
                 ).fetchall()
             }
 
@@ -1437,37 +1457,37 @@ def cmd_materialize_feature_rows(args: argparse.Namespace) -> None:
                 if config.checkpoint_every > 0 and idx % config.checkpoint_every == 0:
                     upsert_checkpoint(
                         conn,
-                        job_name=FEATURE_ROWS_JOB,
+                        job_name=job_name,
                         partition_key=partition_key,
-                        cursor={"season": args.season, "feature_version": args.feature_version, "games_seen": idx, "rows_upserted": rows_upserted},
+                        cursor={"season": season, "feature_version": args.feature_version, "games_seen": idx, "rows_upserted": rows_upserted},
                         status="running",
                         last_game_id=last_game_id,
                     )
 
             cursor = {
-                "season": args.season,
+                "season": season,
                 "feature_version": args.feature_version,
                 "games_seen": len(games),
                 "rows_upserted": rows_upserted,
             }
             upsert_checkpoint(
                 conn,
-                job_name=FEATURE_ROWS_JOB,
+                job_name=job_name,
                 partition_key=partition_key,
                 cursor=cursor,
                 status="success",
                 last_game_id=last_game_id,
             )
-            note = format_run_observability({"job": FEATURE_ROWS_JOB, **cursor})
+            note = format_run_observability({"job": job_name, **cursor})
             finish_run(conn, run_id, "success", note=note, request_count=0)
             print(f"Feature row materialization complete for {partition_key}: {note}")
         except Exception as exc:
             error = str(exc)
             upsert_checkpoint(
                 conn,
-                job_name=FEATURE_ROWS_JOB,
+                job_name=job_name,
                 partition_key=partition_key,
-                cursor={"season": args.season, "feature_version": args.feature_version},
+                cursor={"season": season, "feature_version": args.feature_version},
                 status="failed",
                 last_error=error,
                 last_game_id=last_game_id,
@@ -1487,6 +1507,12 @@ def cmd_init_db(args: argparse.Namespace) -> None:
 
 def cmd_backfill(args: argparse.Namespace) -> None:
     config = build_config(args)
+    if args.season is not None:
+        validate_supported_season(args.season)
+    validate_supported_season(config.season_start)
+    validate_supported_season(config.season_end)
+    if config.season_start > config.season_end:
+        raise ValueError("season-start must be less than or equal to season-end")
     budget = RequestBudget(limit=config.request_policy.request_budget_per_run)
     partition_key = f"season={args.season}" if args.season else f"range={config.season_start}-{config.season_end}"
     with connect_db(config.db_path) as conn:
@@ -1643,12 +1669,10 @@ def cmd_incremental(args: argparse.Namespace) -> None:
 
 
 def cmd_backfill_team_stats(args: argparse.Namespace) -> None:
-    if args.season != 2020:
-        raise ValueError("team-stats backfill is restricted to season 2020 only")
-
+    season = validate_supported_season(args.season)
     config = build_config(args)
     budget = RequestBudget(limit=config.request_policy.request_budget_per_run)
-    partition_key = f"team-stats-season={args.season}"
+    partition_key = f"team-stats-season={season}"
 
     with connect_db(config.db_path) as conn:
         ensure_schema(conn)
@@ -1659,7 +1683,7 @@ def cmd_backfill_team_stats(args: argparse.Namespace) -> None:
         total_rows_upserted = 0
         last_game_id: int | None = None
         try:
-            game_ids = _completed_game_ids_for_season(conn, args.season, limit=args.max_games)
+            game_ids = _completed_game_ids_for_season(conn, season, limit=args.max_games)
             existing_keys = _existing_game_team_stat_keys(conn, set(game_ids))
 
             for game_id in game_ids:
@@ -1687,7 +1711,7 @@ def cmd_backfill_team_stats(args: argparse.Namespace) -> None:
                         job_name="team-stats-backfill",
                         partition_key=partition_key,
                         cursor={
-                            "season": args.season,
+                            "season": season,
                             "games_processed": processed_games,
                             "rows_upserted": total_rows_upserted,
                             "rows_inserted": rows_inserted,
@@ -1698,7 +1722,7 @@ def cmd_backfill_team_stats(args: argparse.Namespace) -> None:
                     )
 
             run_stats = {
-                "season": args.season,
+                "season": season,
                 "games_selected": len(game_ids),
                 "games_processed": processed_games,
                 "rows_upserted": total_rows_upserted,
@@ -1722,7 +1746,7 @@ def cmd_backfill_team_stats(args: argparse.Namespace) -> None:
                 conn,
                 job_name="team-stats-backfill",
                 partition_key=partition_key,
-                cursor={"season": args.season, "games_processed": processed_games},
+                cursor={"season": season, "games_processed": processed_games},
                 status="failed",
                 last_game_id=last_game_id,
                 last_error=error,
@@ -1788,8 +1812,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     backfill = subparsers.add_parser("backfill", help="Backfill historical partitions")
     backfill.add_argument("--season", type=int, help="Single season override")
-    backfill.add_argument("--season-start", type=int, default=2020)
-    backfill.add_argument("--season-end", type=int, default=2025)
+    backfill.add_argument("--season-start", type=int, default=MIN_SUPPORTED_SEASON)
+    backfill.add_argument("--season-end", type=int, default=MAX_SUPPORTED_SEASON)
     backfill.set_defaults(func=cmd_backfill)
 
     incremental = subparsers.add_parser("incremental", help="Run daily incremental sync")
@@ -1798,23 +1822,45 @@ def build_parser() -> argparse.ArgumentParser:
 
     team_stats = subparsers.add_parser(
         "backfill-team-stats",
-        help="Backfill game_team_stats from completed games in DB (restricted to season 2020)",
+        help="Backfill game_team_stats from completed games in DB for one supported season",
     )
-    team_stats.add_argument("--season", type=int, default=2020, help="Season to process (must be 2020)")
+    team_stats.add_argument(
+        "--season",
+        type=int,
+        default=MIN_SUPPORTED_SEASON,
+        help=f"Season to process ({MIN_SUPPORTED_SEASON}-{MAX_SUPPORTED_SEASON})",
+    )
     team_stats.add_argument("--max-games", type=int, help="Optional cap for validation runs")
     team_stats.set_defaults(func=cmd_backfill_team_stats)
 
     pitcher_context = subparsers.add_parser(
-        "backfill-pitcher-context-2020",
-        help="Backfill game_pitcher_context for season 2020 only",
+        "backfill-pitcher-context",
+        help="Backfill game_pitcher_context for one supported season",
     )
-    pitcher_context.set_defaults(func=cmd_backfill_pitcher_context_2020)
+    pitcher_context.add_argument(
+        "--season",
+        type=int,
+        default=MIN_SUPPORTED_SEASON,
+        help=f"Season to process ({MIN_SUPPORTED_SEASON}-{MAX_SUPPORTED_SEASON})",
+    )
+    pitcher_context.set_defaults(func=cmd_backfill_pitcher_context)
+
+    pitcher_context_legacy = subparsers.add_parser(
+        "backfill-pitcher-context-2020",
+        help="Backfill game_pitcher_context for season 2020 only (legacy alias)",
+    )
+    pitcher_context_legacy.set_defaults(func=cmd_backfill_pitcher_context, season=2020)
 
     feature_rows = subparsers.add_parser(
         "materialize-feature-rows",
-        help="Materialize canonical feature_rows for season 2020 from existing support tables",
+        help="Materialize canonical feature_rows for one supported season from existing support tables",
     )
-    feature_rows.add_argument("--season", type=int, default=2020, help="Season to process (must be 2020)")
+    feature_rows.add_argument(
+        "--season",
+        type=int,
+        default=MIN_SUPPORTED_SEASON,
+        help=f"Season to process ({MIN_SUPPORTED_SEASON}-{MAX_SUPPORTED_SEASON})",
+    )
     feature_rows.add_argument("--feature-version", default=FEATURE_VERSION_V1, help="Feature version tag (default: v1)")
     feature_rows.set_defaults(func=cmd_materialize_feature_rows)
 
@@ -1836,8 +1882,8 @@ def build_config(args: argparse.Namespace) -> IngestConfig:
     )
     return IngestConfig(
         db_path=args.db,
-        season_start=getattr(args, "season_start", 2020),
-        season_end=getattr(args, "season_end", 2025),
+        season_start=getattr(args, "season_start", MIN_SUPPORTED_SEASON),
+        season_end=getattr(args, "season_end", MAX_SUPPORTED_SEASON),
         checkpoint_every=args.checkpoint_every,
         request_policy=request_policy,
     )

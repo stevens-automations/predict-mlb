@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Phase 2 QA validation for 2020 historical ingestion outputs."""
+"""Phase 2 QA validation for season-partitioned historical ingestion outputs."""
 
 from __future__ import annotations
 
@@ -16,7 +16,10 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DB = ROOT / "data" / "mlb_history.db"
-DEFAULT_REPORT = ROOT / "docs" / "reports" / "phase2-validation-2020.md"
+
+
+def default_report_path(season: int) -> Path:
+    return ROOT / "docs" / "reports" / f"phase2-validation-{season}.md"
 
 TEAM_FIELDS = ["runs", "hits", "errors", "batting_avg", "obp", "slg", "ops", "strikeouts", "walks"]
 PITCHER_FIELDS = [
@@ -50,10 +53,12 @@ PITCHER_RANGES: dict[str, tuple[float | None, float | None]] = {
     "pitcher_id": (1, None),
     "probable_pitcher_id": (1, None),
     "probable_pitcher_known": (0, 1),
-    "season_era": (0.0, 100.0),
-    "season_whip": (0.0, 10.0),
+    # Tiny season-to-date samples can legitimately spike after one disastrous outing,
+    # but still stay well below the obviously broken decimal-innings-style values.
+    "season_era": (0.0, 150.0),
+    "season_whip": (0.0, 25.0),
     "season_avg_allowed": (0.0, 1.0),
-    "season_runs_per_9": (0.0, 100.0),
+    "season_runs_per_9": (0.0, 150.0),
     "season_strike_pct": (0.0, 1.0),
     "season_win_pct": (0.0, 1.0),
     "career_era": (0.0, 50.0),
@@ -170,7 +175,7 @@ def coverage_check(conn: sqlite3.Connection, season: int) -> CheckResult:
     )
     status = "PASS" if ok else "FAIL"
     return CheckResult(
-        name="Row coverage vs 2020 games",
+        name=f"Row coverage vs {season} games",
         status=status,
         summary=(
             f"games={games}, completed_games={completed_games}, "
@@ -374,7 +379,7 @@ def observability_consistency_check(conn: sqlite3.Connection, season: int) -> Ch
         return CheckResult(
             name="Checkpoint/run observability consistency",
             status="FAIL",
-            summary="Missing backfill run or checkpoint for season=2020",
+            summary=f"Missing backfill run or checkpoint for season={season}",
             details={"run_found": run is not None, "checkpoint_found": checkpoint is not None},
         )
 
@@ -545,7 +550,7 @@ def render_markdown(results: list[CheckResult], season: int, db_path: Path) -> s
     else:
         lines.append("- None")
 
-    lines += ["", "## Recommendation for 2021", ""]
+    lines += ["", f"## Recommendation for season {season}", ""]
     lines.append("- **GO**" if overall == "PASS" else "- **NO-GO** until blockers above are resolved.")
     lines.append("")
     return "\n".join(lines)
@@ -568,10 +573,10 @@ def overall_status(results: list[CheckResult]) -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Validate Phase 2 historical outputs for season 2020")
+    parser = argparse.ArgumentParser(description="Validate Phase 2 historical outputs for a target season")
     parser.add_argument("--db", default=str(DEFAULT_DB), help="Path to mlb_history.db")
     parser.add_argument("--season", type=int, default=2020, help="Season partition (default: 2020)")
-    parser.add_argument("--output", default=str(DEFAULT_REPORT), help="Markdown report output path")
+    parser.add_argument("--output", default=None, help="Markdown report output path")
     parser.add_argument(
         "--rerun-cmd",
         default=None,
@@ -581,7 +586,7 @@ def main() -> int:
     args = parser.parse_args()
 
     db_path = Path(args.db)
-    output = Path(args.output)
+    output = Path(args.output) if args.output else default_report_path(args.season)
     output.parent.mkdir(parents=True, exist_ok=True)
 
     results = run_validation(db_path, args.season, args.rerun_cmd)

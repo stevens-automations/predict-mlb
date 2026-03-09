@@ -1,10 +1,10 @@
-# Historical Ingestion Runbook (2020 Parity-Safe Enrichment + V1 Feature Rows)
+# Historical Ingestion Runbook (Season-Parameterized Parity-Safe Enrichment + V1 Feature Rows)
 
 Last updated: 2026-03-09
 
 ## Purpose
 
-This runbook covers bounded historical ingestion plus the current 2020 enrichment/materialization path into SQLite.
+This runbook covers bounded historical ingestion plus the current season-parameterized enrichment/materialization path into SQLite.
 Scope includes schedule ingest, team stats backfill, parity-safe pitcher context, canonical `feature_rows(v1)`, and checkpoint/run-ledger metadata.
 
 ## Canonical Decisions Encoded
@@ -25,9 +25,9 @@ From repo root:
 python scripts/history_ingest.py init-db
 python scripts/history_ingest.py backfill --season 2024
 python scripts/history_ingest.py incremental --date 2026-03-09
-python scripts/history_ingest.py backfill-team-stats --season 2020
-python scripts/history_ingest.py backfill-pitcher-context-2020
-python scripts/history_ingest.py materialize-feature-rows --season 2020 --feature-version v1
+python scripts/history_ingest.py backfill-team-stats --season 2021
+python scripts/history_ingest.py backfill-pitcher-context --season 2021
+python scripts/history_ingest.py materialize-feature-rows --season 2021 --feature-version v1
 python scripts/history_ingest.py dq --partition season=2024
 ```
 
@@ -38,12 +38,12 @@ python scripts/history_ingest.py dq --partition season=2024
   - `games` rows for final/relevant MLB games
   - `labels` rows for final games (`did_home_win`, `run_differential`, `total_runs`)
 - `incremental` performs bounded one-day `statsapi.schedule` ingest with the same game/label upserts.
-- `backfill-team-stats` backfills `game_team_stats` for completed 2020 games from boxscores.
-- `backfill-pitcher-context-2020` writes `game_pitcher_context` using probable starters from schedule plus season-to-date pitcher stats derived only from prior completed game boxscores. When live schedule/boxscore calls are unavailable, it falls back to existing stored probable starter identity and rewrites season metrics to explicit leakage-safe nulls instead of keeping leakage-prone aggregates. Provenance contract:
+- `backfill-team-stats` backfills `game_team_stats` for completed games in the selected season (`2020-2025`) from boxscores.
+- `backfill-pitcher-context --season <year>` writes `game_pitcher_context` using probable starters from schedule plus season-to-date pitcher stats derived only from prior completed game boxscores. `backfill-pitcher-context-2020` remains as a legacy alias for the 2020 path. When live schedule/boxscore calls are unavailable, it falls back to existing stored probable starter identity and rewrites season metrics to explicit leakage-safe nulls instead of keeping leakage-prone aggregates. Provenance contract:
   - `season_stats_scope='season_to_date_prior_completed_games'`
   - `season_stats_leakage_risk=0`
   - when a probable starter is known but has no prior completed pitching data, season stat fields stay `NULL`
-- `materialize-feature-rows` writes one canonical `feature_rows(feature_version='v1')` row per 2020 game using only prior completed team results plus the already-materialized pitcher context. Stable key:
+- `materialize-feature-rows` writes one canonical `feature_rows(feature_version='v1')` row per selected-season game using only prior completed team results plus the already-materialized pitcher context. Stable key:
   - `(game_id, feature_version, as_of_ts)`
   - `as_of_ts` is `scheduled_datetime` when available, else `game_dateT00:00:00Z`
   - reruns update the same row instead of creating duplicates, and stale snapshots for the same `(game_id, feature_version)` are deleted before insert
@@ -90,16 +90,16 @@ Interpretation:
 .venv/bin/python -m unittest discover -s tests -p 'test_validate_phase2_2020.py'
 ```
 
-## Phase 2 QA Verification (2020-only)
+## Phase 2 QA Verification
 
-`backfill --season 2020` only populates `games` and `labels`. Enrichment/materialization remains explicit and ordered.
+`backfill --season <year>` only populates `games` and `labels`. Enrichment/materialization remains explicit and ordered.
 
-Before validation, run the three 2020 jobs in order:
+Before validation, run the three season-specific jobs in order. Example for 2021:
 
 ```bash
-.venv/bin/python scripts/history_ingest.py --db data/mlb_history.db backfill-team-stats --season 2020
-.venv/bin/python scripts/history_ingest.py --db data/mlb_history.db backfill-pitcher-context-2020
-.venv/bin/python scripts/history_ingest.py --db data/mlb_history.db materialize-feature-rows --season 2020 --feature-version v1
+.venv/bin/python scripts/history_ingest.py --db data/mlb_history.db backfill-team-stats --season 2021
+.venv/bin/python scripts/history_ingest.py --db data/mlb_history.db backfill-pitcher-context --season 2021
+.venv/bin/python scripts/history_ingest.py --db data/mlb_history.db materialize-feature-rows --season 2021 --feature-version v1
 ```
 
 Then run validation:
@@ -107,20 +107,20 @@ Then run validation:
 ```bash
 .venv/bin/python scripts/validate_phase2_2020.py \
   --db data/mlb_history.db \
-  --season 2020 \
-  --output docs/reports/phase2-validation-2020.md \
-  --rerun-cmd ".venv/bin/python scripts/history_ingest.py --db data/mlb_history.db materialize-feature-rows --season 2020 --feature-version v1"
+  --season 2021 \
+  --output docs/reports/phase2-validation-2021.md \
+  --rerun-cmd ".venv/bin/python scripts/history_ingest.py --db data/mlb_history.db materialize-feature-rows --season 2021 --feature-version v1"
 ```
 
 Interpretation guide:
 
-- **Row coverage vs 2020 games**
+- **Row coverage vs `<season>` games**
   - PASS: exactly 2 rows/game in both `game_team_stats` and `game_pitcher_context`, plus exactly 1 `feature_rows(v1)` row/game.
   - FAIL: enrichment/materialization is incomplete for one or more canonical tables.
 - **Pitcher provenance is parity-safe**
-  - PASS: all 2020 pitcher rows have `season_stats_leakage_risk=0`.
+  - PASS: all target-season pitcher rows have `season_stats_leakage_risk=0`.
   - PASS: rows with known probable starters use `season_stats_scope='season_to_date_prior_completed_games'`.
-  - FAIL: any leakage-prone season scope/risk remains in 2020 backfill output.
+  - FAIL: any leakage-prone season scope/risk remains in the target-season backfill output.
 - **Missingness per key feature field**
   - PASS/WARN only when rows exist and required columns are present.
   - FAIL when there are zero rows or required feature columns are absent from schema/data.
@@ -128,10 +128,10 @@ Interpretation guide:
   - PASS: no duplicate PK groups and table digests unchanged before/after rerun, including `feature_rows`.
   - FAIL: duplicate keys, post-rerun content drift, or rerun command failure.
 - **Sanity ranges for major numeric fields**
-  - PASS: no out-of-range values on non-null numeric fields.
+  - PASS: no out-of-range values on non-null numeric fields. Pitcher ceilings intentionally allow rare tiny-sample season-to-date spikes (for example, one disastrous `0.2 IP` outing can legitimately push `season_era`/`season_runs_per_9` to `135.0` and `season_whip` to `21.0`).
   - FAIL: rows missing entirely, schema columns missing, or range violations.
 - **Checkpoint/run observability consistency**
-  - PASS: latest `ingestion_runs.note` counters for `season=2020` align with checkpoint `cursor_json`.
+  - PASS: latest `ingestion_runs.note` counters for `season=<year>` align with checkpoint `cursor_json`.
   - FAIL: missing run/checkpoint rows or counter mismatches.
 
 Go/No-Go rule for moving to 2021:

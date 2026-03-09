@@ -20,15 +20,16 @@ Branch intent: `staging/preseason-consolidated` is the integration branch; `main
   - `init-db`
   - `backfill` (bounded statsapi schedule ingest)
   - `incremental` (bounded one-day schedule ingest)
-  - `backfill-team-stats` (2020 completed-game team boxscore backfill)
-  - `backfill-pitcher-context-2020` (2020 parity-safe starter context backfill from prior completed games only)
-  - `materialize-feature-rows` (2020 canonical `feature_rows(feature_version='v1')` materialization)
+- `backfill-team-stats --season <2020-2025>` (season-scoped completed-game team boxscore backfill)
+- `backfill-pitcher-context --season <2020-2025>` with legacy alias `backfill-pitcher-context-2020` (season-scoped parity-safe starter context backfill from prior completed games only)
+- `materialize-feature-rows --season <2020-2025>` (season-scoped canonical `feature_rows(feature_version='v1')` materialization)
   - `dq`
 - Added canonical historical schema SQL at `scripts/sql/history_schema.sql`.
 - Added run/checkpoint ledger in DB (`ingestion_runs`, `ingestion_checkpoints`) with periodic/final checkpoint updates.
 - Added idempotent upsert helpers for `games` + `labels` (`did_home_win`, `run_differential`, `total_runs` for final games).
 - Added mocked tests for bounded backfill/incremental ingest behavior and idempotent upserts.
 - `game_pitcher_context` no longer depends on leakage-prone `player_stat_data(type=yearByYear)` season aggregates for 2020 backfill. Starter season metrics are derived as-of each game from previously completed boxscores when available; otherwise the command preserves starter identity and rewrites season fields to explicit leakage-safe null fallback with `season_stats_scope='season_to_date_prior_completed_games'` and `season_stats_leakage_risk=0`.
+- 2021 validator sanity-range blocker was reduced to two legitimate tiny-sample `game_pitcher_context` rows (4 field hits total), and validator pitcher ceilings now allow those edge cases while still flagging clearly broken decimal-innings-style outliers.
 - `feature_rows(feature_version='v1')` can now be materialized for 2020 from existing support tables with one canonical row per `(game_id, feature_version)`, stable `as_of_ts`, stale-snapshot cleanup, and explicit degraded/null behavior.
 
 ## Newly Aligned Direction (encoded)

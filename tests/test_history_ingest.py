@@ -168,17 +168,18 @@ class TestHistoryIngestSchemaAndUpserts(unittest.TestCase):
 
 
 class TestHistoryIngestCommands(unittest.TestCase):
-    def test_backfill_pitcher_context_2020_derives_parity_safe_stats_and_is_idempotent(self) -> None:
+    def test_backfill_pitcher_context_for_season_derives_parity_safe_stats_and_is_idempotent(self) -> None:
         with TemporaryDirectory() as td:
             db_path = Path(td) / "history.db"
+            season = 2021
             with connect_db(str(db_path)) as conn:
                 ensure_schema(conn)
-                for game_id, game_date in ((3001, "2020-08-01"), (3002, "2020-08-05")):
+                for game_id, game_date in ((3001, "2021-08-01"), (3002, "2021-08-05")):
                     upsert_game(
                         conn,
                         {
                             "game_id": game_id,
-                            "season": 2020,
+                            "season": season,
                             "game_date": game_date,
                             "status": "Final",
                             "home_team_id": 147,
@@ -187,20 +188,22 @@ class TestHistoryIngestCommands(unittest.TestCase):
                     )
 
             parser = build_parser()
-            args = parser.parse_args(["--db", str(db_path), "--checkpoint-every", "1", "backfill-pitcher-context-2020"])
+            args = parser.parse_args(
+                ["--db", str(db_path), "--checkpoint-every", "1", "backfill-pitcher-context", "--season", str(season)]
+            )
 
             schedule_rows = [
                 {
                     "game_id": 3001,
-                    "season": 2020,
-                    "game_date": "2020-08-01",
+                    "season": season,
+                    "game_date": "2021-08-01",
                     "home_probable_pitcher": "Home Starter",
                     "away_probable_pitcher": "Away Starter",
                 },
                 {
                     "game_id": 3002,
-                    "season": 2020,
-                    "game_date": "2020-08-05",
+                    "season": season,
+                    "game_date": "2021-08-05",
                     "home_probable_pitcher": "Home Starter",
                     "away_probable_pitcher": "Away Starter",
                 }
@@ -286,7 +289,7 @@ class TestHistoryIngestCommands(unittest.TestCase):
                     """
                     SELECT status, attempts, cursor_json
                     FROM ingestion_checkpoints
-                    WHERE job_name='pitcher-context-2020' AND partition_key='season=2020'
+                    WHERE job_name='pitcher-context-2021' AND partition_key='season=2021'
                     """
                 ).fetchone()
 
@@ -304,7 +307,7 @@ class TestHistoryIngestCommands(unittest.TestCase):
             self.assertEqual(second_game_home["season_strike_pct"], 0.667)
             self.assertEqual(second_game_home["season_win_pct"], 1.0)
             self.assertIsNone(second_game_home["career_era"])
-            self.assertEqual(second_game_home["stats_as_of_date"], "2020-08-05")
+            self.assertEqual(second_game_home["stats_as_of_date"], "2021-08-05")
             self.assertEqual(second_game_home["season_stats_scope"], "season_to_date_prior_completed_games")
             self.assertEqual(second_game_home["season_stats_leakage_risk"], 0)
             self.assertIn("prior_completed_games_only", second_game_home["stats_source"])
@@ -317,21 +320,22 @@ class TestHistoryIngestCommands(unittest.TestCase):
             self.assertEqual(checkpoint["status"], "success")
             self.assertGreaterEqual(checkpoint["attempts"], 2)
             checkpoint_cursor = json.loads(checkpoint["cursor_json"])
-            self.assertEqual(checkpoint_cursor["season"], 2020)
+            self.assertEqual(checkpoint_cursor["season"], season)
             self.assertEqual(checkpoint_cursor["games_seen"], 2)
             self.assertEqual(checkpoint_cursor["rows_upserted"], 4)
 
-    def test_backfill_pitcher_context_2020_falls_back_to_existing_identity_without_leakage(self) -> None:
+    def test_backfill_pitcher_context_for_season_falls_back_to_existing_identity_without_leakage(self) -> None:
         with TemporaryDirectory() as td:
             db_path = Path(td) / "history.db"
+            season = 2021
             with connect_db(str(db_path)) as conn:
                 ensure_schema(conn)
                 upsert_game(
                     conn,
                     {
                         "game_id": 3010,
-                        "season": 2020,
-                        "game_date": "2020-08-06",
+                        "season": season,
+                        "game_date": "2021-08-06",
                         "status": "Final",
                         "home_team_id": 147,
                         "away_team_id": 121,
@@ -357,7 +361,7 @@ class TestHistoryIngestCommands(unittest.TestCase):
                     )
 
             parser = build_parser()
-            args = parser.parse_args(["--db", str(db_path), "backfill-pitcher-context-2020"])
+            args = parser.parse_args(["--db", str(db_path), "backfill-pitcher-context", "--season", str(season)])
 
             with patch("scripts.history_ingest.statsapi", None):
                 args.func(args)
@@ -382,6 +386,11 @@ class TestHistoryIngestCommands(unittest.TestCase):
                 self.assertEqual(row["season_stats_scope"], "season_to_date_prior_completed_games")
                 self.assertEqual(row["season_stats_leakage_risk"], 0)
                 self.assertIn("leakage_safe_null_fallback", row["stats_source"])
+
+    def test_backfill_pitcher_context_legacy_alias_defaults_to_2020(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["backfill-pitcher-context-2020"])
+        self.assertEqual(args.season, 2020)
 
     def test_backfill_ingests_bounded_schedule_and_labels_idempotently(self) -> None:
         with TemporaryDirectory() as td:
@@ -654,11 +663,14 @@ class TestHistoryIngestCommands(unittest.TestCase):
         self.assertEqual(row["strikeouts"], 7)
         self.assertEqual(row["walks"], 4)
 
-    def test_backfill_team_stats_2020_idempotent(self) -> None:
+    def test_backfill_team_stats_for_season_idempotent(self) -> None:
         with TemporaryDirectory() as td:
             db_path = Path(td) / "history.db"
+            season = 2021
             parser = build_parser()
-            args = parser.parse_args(["--db", str(db_path), "--checkpoint-every", "1", "backfill-team-stats", "--season", "2020"])
+            args = parser.parse_args(
+                ["--db", str(db_path), "--checkpoint-every", "1", "backfill-team-stats", "--season", str(season)]
+            )
 
             with connect_db(str(db_path)) as conn:
                 ensure_schema(conn)
@@ -666,8 +678,8 @@ class TestHistoryIngestCommands(unittest.TestCase):
                     conn,
                     {
                         "game_id": 4001,
-                        "season": 2020,
-                        "game_date": "2020-07-24",
+                        "season": season,
+                        "game_date": "2021-07-24",
                         "status": "Final",
                         "home_team_id": 147,
                         "away_team_id": 121,
@@ -724,10 +736,10 @@ class TestHistoryIngestCommands(unittest.TestCase):
                     "SELECT runs, hits, batting_avg, obp, slg, ops, strikeouts, walks FROM game_team_stats WHERE game_id=4001 AND side='away'"
                 ).fetchone()
                 runs = conn.execute(
-                    "SELECT note, request_count FROM ingestion_runs WHERE mode='backfill' AND partition_key='team-stats-season=2020' ORDER BY started_at"
+                    "SELECT note, request_count FROM ingestion_runs WHERE mode='backfill' AND partition_key='team-stats-season=2021' ORDER BY started_at"
                 ).fetchall()
                 checkpoint = conn.execute(
-                    "SELECT status, attempts, cursor_json FROM ingestion_checkpoints WHERE job_name='team-stats-backfill' AND partition_key='team-stats-season=2020'"
+                    "SELECT status, attempts, cursor_json FROM ingestion_checkpoints WHERE job_name='team-stats-backfill' AND partition_key='team-stats-season=2021'"
                 ).fetchone()
 
             self.assertEqual(row_count, 2)
@@ -745,25 +757,26 @@ class TestHistoryIngestCommands(unittest.TestCase):
             self.assertEqual(checkpoint["status"], "success")
             self.assertGreaterEqual(checkpoint["attempts"], 2)
 
-    def test_materialize_feature_rows_v1_is_idempotent(self) -> None:
+    def test_materialize_feature_rows_v1_for_season_is_idempotent(self) -> None:
         with TemporaryDirectory() as td:
             db_path = Path(td) / "history.db"
+            season = 2021
             parser = build_parser()
             args = parser.parse_args(
-                ["--db", str(db_path), "--checkpoint-every", "1", "materialize-feature-rows", "--season", "2020"]
+                ["--db", str(db_path), "--checkpoint-every", "1", "materialize-feature-rows", "--season", str(season)]
             )
 
             with connect_db(str(db_path)) as conn:
                 ensure_schema(conn)
                 for game_id, game_date, home_score, away_score in (
-                    (5001, "2020-07-24", 5, 3),
-                    (5002, "2020-07-25", 4, 2),
+                    (5001, "2021-07-24", 5, 3),
+                    (5002, "2021-07-25", 4, 2),
                 ):
                     upsert_game(
                         conn,
                         {
                             "game_id": game_id,
-                            "season": 2020,
+                            "season": season,
                             "game_date": game_date,
                             "scheduled_datetime": f"{game_date}T23:05:00Z",
                             "status": "Final",
@@ -779,7 +792,7 @@ class TestHistoryIngestCommands(unittest.TestCase):
                     INSERT INTO feature_rows (
                       game_id, feature_version, as_of_ts, feature_payload_json, source_contract_status
                     )
-                    VALUES (5002, 'v1', '2020-07-25T00:00:00Z', '{}', 'degraded')
+                    VALUES (5002, 'v1', '2021-07-25T00:00:00Z', '{}', 'degraded')
                     """
                 )
                 conn.execute(
@@ -863,21 +876,21 @@ class TestHistoryIngestCommands(unittest.TestCase):
                     """
                     SELECT status, attempts, cursor_json
                     FROM ingestion_checkpoints
-                    WHERE job_name='feature-rows-v1-2020' AND partition_key='feature-rows-season=2020:version=v1'
+                    WHERE job_name='feature-rows-v1-2021' AND partition_key='feature-rows-season=2021:version=v1'
                     """
                 ).fetchone()
                 run_notes = conn.execute(
                     """
                     SELECT note
                     FROM ingestion_runs
-                    WHERE partition_key='feature-rows-season=2020:version=v1'
+                    WHERE partition_key='feature-rows-season=2021:version=v1'
                     ORDER BY started_at
                     """
                 ).fetchall()
 
             payload = json.loads(second_game["feature_payload_json"])
             self.assertEqual(row_count, 2)
-            self.assertEqual(second_game["as_of_ts"], "2020-07-25T23:05:00Z")
+            self.assertEqual(second_game["as_of_ts"], "2021-07-25T23:05:00Z")
             self.assertEqual(second_game["source_contract_status"], "valid")
             self.assertEqual(first_game["source_contract_status"], "degraded")
             self.assertEqual(json.loads(first_game["source_contract_issues_json"]), ["away_starter_stats_unavailable", "home_starter_stats_unavailable"])
