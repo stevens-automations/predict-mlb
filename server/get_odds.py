@@ -7,6 +7,7 @@ import pytz  # type: ignore
 import json
 import os
 from time_utils import parse_iso_z_to_eastern
+from simulation import simulation_enabled, get_simulated_games
 
 # minimum time between requests
 REQUEST_COOLDOWN = 900 # 0.25 hour
@@ -168,6 +169,9 @@ def get_todays_odds():
         games: list of python dictionaries representing individual MLB games
         time: time of the request to get the odds (most recent odds retrieval)
     """
+    if simulation_enabled():
+        return get_simulated_games(), datetime.now()
+
     res = make_request()
     if not res:
         return None

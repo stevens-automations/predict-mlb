@@ -1,5 +1,6 @@
 from paths import get_env_path, get_predictions_db_path, load_env, resolve_path
 from sqlite_phase1 import ensure_predictions_schema
+from simulation import simulation_enabled
 import os
 
 REQUIRED_ENV_VARS = [
@@ -13,7 +14,8 @@ REQUIRED_ENV_VARS = [
 
 def validate_runtime() -> None:
     load_env()
-    missing = [name for name in REQUIRED_ENV_VARS if not os.getenv(name)]
+    required_env_vars = [] if simulation_enabled() else REQUIRED_ENV_VARS
+    missing = [name for name in required_env_vars if not os.getenv(name)]
     if missing:
         raise RuntimeError(f"Missing required environment variables: {', '.join(missing)}")
 

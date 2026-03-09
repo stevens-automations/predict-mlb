@@ -1,0 +1,62 @@
+{
+  "games": [
+    {
+      "date": "Today",
+      "time": "1:10 pm",
+      "commence_time": "2026-07-04T17:10:00Z",
+      "home_team": "New York Mets",
+      "away_team": "Atlanta Braves",
+      "favorite": "Atlanta Braves",
+      "sim_game_id": 900001,
+      "New York Mets_odds": 115,
+      "Atlanta Braves_odds": -125,
+      "New York Mets_bookmaker": "SimBook",
+      "Atlanta Braves_bookmaker": "SimBook"
+    },
+    {
+      "date": "Today",
+      "time": "7:05 pm",
+      "commence_time": "2026-07-04T23:05:00Z",
+      "home_team": "New York Yankees",
+      "away_team": "Boston Red Sox",
+      "favorite": "New York Yankees",
+      "sim_game_id": 900002,
+      "New York Yankees_odds": -135,
+      "Boston Red Sox_odds": 122,
+      "New York Yankees_bookmaker": "SimBook",
+      "Boston Red Sox_bookmaker": "SimBook"
+    }
+  ],
+  "predictions": [
+    {
+      "game_id": 900001,
+      "date": "2026-07-04",
+      "datetime": "2026-07-04T17:10:00Z",
+      "home": "New York Mets",
+      "away": "Atlanta Braves",
+      "home_probable": "Kodai Senga",
+      "away_probable": "Chris Sale",
+      "predicted_winner": "Atlanta Braves",
+      "prediction_value": 0.61,
+      "venue": "Citi Field",
+      "series_status": "ATL leads 1-0",
+      "national_broadcasts": "FOX",
+      "summary": "Atlanta Braves @ New York Mets"
+    },
+    {
+      "game_id": 900002,
+      "date": "2026-07-04",
+      "datetime": "2026-07-04T23:05:00Z",
+      "home": "New York Yankees",
+      "away": "Boston Red Sox",
+      "home_probable": "Gerrit Cole",
+      "away_probable": "Brayan Bello",
+      "predicted_winner": "New York Yankees",
+      "prediction_value": 0.67,
+      "venue": "Yankee Stadium",
+      "series_status": "NYY leads 2-0",
+      "national_broadcasts": "ESPN",
+      "summary": "Boston Red Sox @ New York Yankees"
+    }
+  ]
+}

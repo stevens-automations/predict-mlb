@@ -1,6 +1,7 @@
 # XLSX data files 
 *.xlsx
 *.json
+!tests/fixtures/*.json
 *.bak
 *.csv
 *.out

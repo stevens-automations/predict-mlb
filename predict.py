@@ -23,6 +23,12 @@ from paths import load_env
 from runtime import validate_runtime
 from reliability_utils import get_predicted_winner_location
 from storage import WriteStats, get_primary_storage
+from simulation import (
+    get_simulated_prediction,
+    resolve_sim_date,
+    simulation_enabled,
+    posting_disabled,
+)
 import pandas as pd  # type: ignore
 import subprocess
 import threading
@@ -332,8 +338,7 @@ def _write_enrichment_report(run_id: Optional[str], report: Dict[str, object]) -
 
 
 def generate_daily_predictions(storage, model: str = selected_model, date=datetime.now(), run_id: Optional[str] = None, write_stats: Optional[WriteStats] = None) -> tuple[List[str], List[str], int]:
-    if date is not datetime.now():
-        pass
+    date = resolve_sim_date(date)
 
     scheduled_ids = []
     predicted_ids = []
@@ -373,41 +378,49 @@ def generate_daily_predictions(storage, model: str = selected_model, date=dateti
 
     all_games, odds_time = get_todays_odds()
     game_predictions: List[Dict] = []
-    scheduled_doubleheaders = []
 
-    for game in all_games:
-        if game.get("date") != "Today":
-            continue
-        today = datetime.now().strftime("%m/%d/%Y")
-        teams_games = mlb.get_days_games(game.get("home_team"), today)
-        if not teams_games:
-            continue
-        if len(teams_games) == 2:
-            first, second = teams_games[0], teams_games[1]
-            if first.get("game_id") and second.get("game_id") in scheduled_doubleheaders:
+    if simulation_enabled():
+        for game in all_games:
+            if game.get("date") != "Today":
                 continue
-            for game in all_games:
-                if game['home_team'] != first['home_name']:
-                    continue
-                scheduled_ids.append((first.get("game_id"), game, first.get("game_num")))
-                scheduled_doubleheaders.append(first.get("game_id"))
-                first_ct = game.get("commence_time")
-                break
-            for game in all_games:
-                if game['home_team'] != second['home_name']:
-                    continue
-                if game.get("commence_time") == first_ct:
-                    continue
-                scheduled_ids.append((second.get("game_id"), game, second.get("game_num")))
-                scheduled_doubleheaders.append(second.get("game_id"))
-                break
-            continue
-        elif len(teams_games) == 1:
-            day_game = teams_games[0]
-            if not are_within_30_minutes(day_game['game_datetime'], game['commence_time']):
+            if not game.get("sim_game_id"):
                 continue
-            if (day_game.get("game_id") not in scheduled_ids) and (day_game.get("game_date") == datetime.now(eastern).date().strftime("%Y-%m-%d")):
-                scheduled_ids.append((day_game.get("game_id"), game))
+            scheduled_ids.append((game.get("sim_game_id"), game))
+    else:
+        scheduled_doubleheaders = []
+        for game in all_games:
+            if game.get("date") != "Today":
+                continue
+            today = date.strftime("%m/%d/%Y")
+            teams_games = mlb.get_days_games(game.get("home_team"), today)
+            if not teams_games:
+                continue
+            if len(teams_games) == 2:
+                first, second = teams_games[0], teams_games[1]
+                if first.get("game_id") and second.get("game_id") in scheduled_doubleheaders:
+                    continue
+                for game in all_games:
+                    if game['home_team'] != first['home_name']:
+                        continue
+                    scheduled_ids.append((first.get("game_id"), game, first.get("game_num")))
+                    scheduled_doubleheaders.append(first.get("game_id"))
+                    first_ct = game.get("commence_time")
+                    break
+                for game in all_games:
+                    if game['home_team'] != second['home_name']:
+                        continue
+                    if game.get("commence_time") == first_ct:
+                        continue
+                    scheduled_ids.append((second.get("game_id"), game, second.get("game_num")))
+                    scheduled_doubleheaders.append(second.get("game_id"))
+                    break
+                continue
+            elif len(teams_games) == 1:
+                day_game = teams_games[0]
+                if not are_within_30_minutes(day_game['game_datetime'], game['commence_time']):
+                    continue
+                if (day_game.get("game_id") not in scheduled_ids) and (day_game.get("game_date") == date.date().strftime("%Y-%m-%d")):
+                    scheduled_ids.append((day_game.get("game_id"), game))
 
     for gameObj in scheduled_ids:
         try:
@@ -415,10 +428,31 @@ def generate_daily_predictions(storage, model: str = selected_model, date=dateti
             if gamePk in predicted_ids:
                 continue
             game = gameObj[1]
-            ret = mlb.predict_game(gamePk)
-            if ret is None or ret[0] is None:
-                continue
-            winner, prediction, info = ret[0], ret[1], ret[2]
+            if simulation_enabled():
+                sim_prediction = get_simulated_prediction(gamePk)
+                if sim_prediction is None:
+                    log_event(stage="predict_game", game_id=str(gamePk), result="missing_sim_prediction", run_id=run_id)
+                    continue
+                info = {
+                    "datetime": sim_prediction.get("datetime", game.get("commence_time")),
+                    "date": sim_prediction.get("date", date.date().isoformat()),
+                    "away": sim_prediction.get("away") or game.get("away_team"),
+                    "home": sim_prediction.get("home") or game.get("home_team"),
+                    "home_probable": sim_prediction.get("home_probable"),
+                    "away_probable": sim_prediction.get("away_probable"),
+                    "venue": sim_prediction.get("venue"),
+                    "national_broadcasts": sim_prediction.get("national_broadcasts"),
+                    "series_status": sim_prediction.get("series_status"),
+                    "summary": sim_prediction.get("summary", f"{game.get('away_team')} @ {game.get('home_team')}"),
+                    "game_id": gamePk,
+                }
+                winner = sim_prediction.get("predicted_winner")
+                prediction = float(sim_prediction.get("prediction_value", 0.5))
+            else:
+                ret = mlb.predict_game(gamePk)
+                if ret is None or ret[0] is None:
+                    continue
+                winner, prediction, info = ret[0], ret[1], ret[2]
         except Exception as e:
             log_event(stage="predict_game", game_id=str(gameObj[0]) if len(gameObj) > 0 else None, result=f"error: {e}", run_id=run_id)
             continue
@@ -466,7 +500,7 @@ def generate_daily_predictions(storage, model: str = selected_model, date=dateti
             continue
 
         info["tweet"] = normalized
-        info["time_to_tweet"] = datetime.now().replace(hour=9, minute=45, second=0, microsecond=0).replace(tzinfo=None)
+        info["time_to_tweet"] = date.replace(hour=9, minute=45, second=0, microsecond=0).replace(tzinfo=None)
 
         tweet_lines.append(normalized)
         observability_lines.append(observability_tweet)
@@ -505,6 +539,10 @@ def mark_as_tweeted(tweet: str) -> None:
 
 
 def send_tweet(tweet: str) -> bool:
+    if posting_disabled():
+        print(f"[dry-run] tweet suppressed: {tweet}")
+        mark_as_tweeted(tweet)
+        return True
     try:
         tweet_script = os.path.join(cwd, "server/tweet.py")
         process = subprocess.Popen(["python3", tweet_script, tweet], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -581,10 +619,11 @@ def check_and_predict():
     storage = get_primary_storage()
     write_stats = WriteStats()
 
-    try:
-        load_unchecked_predictions(storage=storage, write_stats=write_stats)
-    except Exception as e:
-        log_event(stage="load_unchecked_predictions", result=f"error: {e}", run_id=current_run_id)
+    if not simulation_enabled():
+        try:
+            load_unchecked_predictions(storage=storage, write_stats=write_stats)
+        except Exception as e:
+            log_event(stage="load_unchecked_predictions", result=f"error: {e}", run_id=current_run_id)
 
     daily_scheduler = BlockingScheduler(job_defaults={"coalesce": False}, timezone=eastern)
     daily_scheduler.add_listener(print_next_job, EVENT_SCHEDULER_STARTED)
@@ -594,8 +633,11 @@ def check_and_predict():
     tweet_lines, observability_lines, predicted_games = generate_daily_predictions(storage=storage, run_id=current_run_id, write_stats=write_stats)
     scheduled_jobs, schedule_summary = schedule_tweets(tweet_lines, run_id=current_run_id, observability_lines=observability_lines)
 
-    daily_scheduler.start()
-    time.sleep(10)
+    if not posting_disabled():
+        daily_scheduler.start()
+        time.sleep(10)
+    else:
+        print("[dry-run] scheduler start skipped")
     daily_scheduler = None
     threshold_warnings = _emit_enrichment_threshold_warnings(schedule_summary, run_id=current_run_id, stage="run_summary")
     summary = (
