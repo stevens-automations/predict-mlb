@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import collections
 import json
 import random
 import sqlite3
@@ -36,6 +37,8 @@ RELEVANT_STATUSES = FINAL_STATUSES | {
 }
 RELEVANT_GAME_TYPES = {"R", "F", "D", "L", "W"}
 PITCHER_CONTEXT_JOB = "pitcher-context-2020"
+FEATURE_ROWS_JOB = "feature-rows-v1-2020"
+FEATURE_VERSION_V1 = "v1"
 
 
 @dataclass(frozen=True)
@@ -392,6 +395,38 @@ def upsert_game_pitcher_context(conn: sqlite3.Connection, row: dict[str, Any]) -
             row.get("season_stats_scope"),
             row.get("season_stats_leakage_risk", 1),
             row.get("source_updated_at") or utc_now(),
+        ),
+    )
+    conn.commit()
+
+
+def upsert_feature_row(conn: sqlite3.Connection, row: dict[str, Any]) -> None:
+    conn.execute(
+        """
+        DELETE FROM feature_rows
+        WHERE game_id = ? AND feature_version = ? AND as_of_ts <> ?
+        """,
+        (row["game_id"], row["feature_version"], row["as_of_ts"]),
+    )
+    conn.execute(
+        """
+        INSERT INTO feature_rows (
+          game_id, feature_version, as_of_ts, feature_payload_json,
+          source_contract_status, source_contract_issues_json
+        ) VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(game_id, feature_version, as_of_ts) DO UPDATE SET
+          feature_payload_json = excluded.feature_payload_json,
+          source_contract_status = excluded.source_contract_status,
+          source_contract_issues_json = excluded.source_contract_issues_json,
+          ingested_at = datetime('now')
+        """,
+        (
+            row["game_id"],
+            row["feature_version"],
+            row["as_of_ts"],
+            row["feature_payload_json"],
+            row.get("source_contract_status", "valid"),
+            row.get("source_contract_issues_json"),
         ),
     )
     conn.commit()
@@ -799,13 +834,189 @@ def _to_float(value: Any) -> float | None:
         return None
 
 
+def _innings_to_outs(value: Any) -> int:
+    if value in (None, "", "--", "-"):
+        return 0
+    text = str(value).strip()
+    if not text:
+        return 0
+    if "." not in text:
+        whole = _to_int(text)
+        return 0 if whole is None else max(0, whole * 3)
+    whole_str, frac_str = text.split(".", 1)
+    whole = _to_int(whole_str) or 0
+    frac = _to_int(frac_str) or 0
+    frac_outs = 1 if frac == 1 else 2 if frac == 2 else 0
+    return max(0, whole * 3 + frac_outs)
+
+
+def _safe_round(value: float | None, digits: int = 3) -> float | None:
+    if value is None:
+        return None
+    return round(value, digits)
+
+
+def _safe_div(numerator: float, denominator: float) -> float | None:
+    if denominator == 0:
+        return None
+    return numerator / denominator
+
+
+def _derive_rate_stats_from_pitcher_aggregate(aggregate: dict[str, Any]) -> dict[str, float | None]:
+    outs = int(aggregate.get("outs", 0) or 0)
+    innings = outs / 3.0
+    hits = float(aggregate.get("hits", 0) or 0)
+    walks = float(aggregate.get("walks", 0) or 0)
+    earned_runs = float(aggregate.get("earned_runs", 0) or 0)
+    runs = float(aggregate.get("runs", 0) or 0)
+    at_bats = float(aggregate.get("at_bats", 0) or 0)
+    strikes = float(aggregate.get("strikes", 0) or 0)
+    pitches = float(aggregate.get("pitches", 0) or 0)
+    wins = float(aggregate.get("wins", 0) or 0)
+    losses = float(aggregate.get("losses", 0) or 0)
+
+    return {
+        "season_era": _safe_round(_safe_div(earned_runs * 9.0, innings), 3),
+        "season_whip": _safe_round(_safe_div(hits + walks, innings), 3),
+        "season_avg_allowed": _safe_round(_safe_div(hits, at_bats), 3),
+        "season_runs_per_9": _safe_round(_safe_div(runs * 9.0, innings), 3),
+        "season_strike_pct": _safe_round(_safe_div(strikes, pitches), 3),
+        "season_win_pct": _safe_round(_safe_div(wins, wins + losses), 3),
+    }
+
+
+def _extract_pitcher_decisions(boxscore: dict[str, Any]) -> tuple[int | None, int | None]:
+    candidates = []
+    for key in ("decisions", "decisionMakers"):
+        payload = boxscore.get(key)
+        if isinstance(payload, dict):
+            candidates.append(payload)
+    for payload in candidates:
+        winner = payload.get("winner") or payload.get("winningPitcher")
+        loser = payload.get("loser") or payload.get("losingPitcher")
+        winner_id = _to_int(winner.get("id")) if isinstance(winner, dict) else None
+        loser_id = _to_int(loser.get("id")) if isinstance(loser, dict) else None
+        if winner_id is not None or loser_id is not None:
+            return winner_id, loser_id
+    return None, None
+
+
+def _iter_boxscore_pitching_lines(boxscore: dict[str, Any]) -> list[dict[str, Any]]:
+    lines: list[dict[str, Any]] = []
+    for side in ("home", "away"):
+        side_payload = boxscore.get(side)
+        if not isinstance(side_payload, dict):
+            continue
+        players = side_payload.get("players")
+        if not isinstance(players, dict):
+            continue
+        for player_payload in players.values():
+            if not isinstance(player_payload, dict):
+                continue
+            person = player_payload.get("person") if isinstance(player_payload.get("person"), dict) else {}
+            stats = player_payload.get("stats") if isinstance(player_payload.get("stats"), dict) else {}
+            pitching = stats.get("pitching") if isinstance(stats.get("pitching"), dict) else {}
+            pitcher_id = _to_int(person.get("id")) or _to_int(player_payload.get("id"))
+            outs = _innings_to_outs(pitching.get("inningsPitched"))
+            if pitcher_id is None or (not pitching and outs == 0):
+                continue
+            lines.append(
+                {
+                    "pitcher_id": pitcher_id,
+                    "pitcher_name": person.get("fullName") or player_payload.get("name"),
+                    "outs": outs,
+                    "hits": _to_int(pitching.get("hits")) or 0,
+                    "walks": _to_int(pitching.get("baseOnBalls")) or _to_int(pitching.get("walks")) or 0,
+                    "earned_runs": _to_int(pitching.get("earnedRuns")) or 0,
+                    "runs": _to_int(pitching.get("runs")) or 0,
+                    "at_bats": _to_int(pitching.get("atBats")) or 0,
+                    "strikes": _to_int(pitching.get("strikes")) or 0,
+                    "pitches": _to_int(pitching.get("numberOfPitches")) or _to_int(pitching.get("pitches")) or 0,
+                }
+            )
+    return lines
+
+
+def _update_pitcher_aggregate_from_boxscore(
+    aggregates: dict[int, dict[str, Any]],
+    boxscore: dict[str, Any],
+) -> None:
+    winner_id, loser_id = _extract_pitcher_decisions(boxscore)
+    for line in _iter_boxscore_pitching_lines(boxscore):
+        pitcher_id = int(line["pitcher_id"])
+        bucket = aggregates.setdefault(
+            pitcher_id,
+            {
+                "pitcher_name": line.get("pitcher_name"),
+                "appearances": 0,
+                "outs": 0,
+                "hits": 0,
+                "walks": 0,
+                "earned_runs": 0,
+                "runs": 0,
+                "at_bats": 0,
+                "strikes": 0,
+                "pitches": 0,
+                "wins": 0,
+                "losses": 0,
+            },
+        )
+        bucket["pitcher_name"] = bucket.get("pitcher_name") or line.get("pitcher_name")
+        bucket["appearances"] += 1
+        for key in ("outs", "hits", "walks", "earned_runs", "runs", "at_bats", "strikes", "pitches"):
+            bucket[key] += int(line.get(key, 0) or 0)
+        if pitcher_id == winner_id:
+            bucket["wins"] += 1
+        if pitcher_id == loser_id:
+            bucket["losses"] += 1
+
+
+def _is_completed_game(status: Any) -> bool:
+    return str(status or "").strip() in FINAL_STATUSES
+
+
+def _feature_as_of_ts(game_row: sqlite3.Row | dict[str, Any]) -> str:
+    scheduled_datetime = game_row["scheduled_datetime"] if isinstance(game_row, sqlite3.Row) else game_row.get("scheduled_datetime")
+    if scheduled_datetime:
+        return str(scheduled_datetime)
+    game_date = game_row["game_date"] if isinstance(game_row, sqlite3.Row) else game_row.get("game_date")
+    return f"{game_date}T00:00:00Z"
+
+
+def _existing_pitcher_identity_rows(conn: sqlite3.Connection, season: int) -> dict[int, dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT
+          g.game_id,
+          p.side,
+          p.probable_pitcher_id,
+          p.probable_pitcher_name
+        FROM games g
+        LEFT JOIN game_pitcher_context p ON p.game_id = g.game_id
+        WHERE g.season = ?
+        ORDER BY g.game_date, g.game_id
+        """,
+        (season,),
+    ).fetchall()
+    out: dict[int, dict[str, Any]] = {}
+    for row in rows:
+        game_id = int(row["game_id"])
+        bucket = out.setdefault(game_id, {})
+        side = str(row["side"] or "").strip()
+        if side not in {"home", "away"}:
+            continue
+        bucket[f"{side}_probable_pitcher_id"] = _to_int(row["probable_pitcher_id"])
+        bucket[f"{side}_probable_pitcher"] = row["probable_pitcher_name"]
+    return out
+
+
 def build_pitcher_context_rows(
     game_id: int,
     game_date: str,
     game_schedule_row: dict[str, Any],
     season: int,
     lookup_cache: dict[str, int | None],
-    stat_cache: dict[int, tuple[dict[str, Any], dict[str, Any]]],
+    prior_pitcher_aggregates: dict[int, dict[str, Any]],
     policy: RequestPolicy,
     budget: RequestBudget,
 ) -> list[dict[str, Any]]:
@@ -813,52 +1024,49 @@ def build_pitcher_context_rows(
     for side in ("home", "away"):
         probable_name = game_schedule_row.get(f"{side}_probable_pitcher")
         probable_name = probable_name.strip() if isinstance(probable_name, str) else None
-        probable_id: int | None = None
-        if probable_name:
+        probable_id = _to_int(game_schedule_row.get(f"{side}_probable_pitcher_id"))
+        if probable_name and probable_id is None and statsapi is not None:
             if probable_name not in lookup_cache:
                 candidates = fetch_lookup_player_bounded(probable_name, season, policy, budget)
                 lookup_cache[probable_name] = _to_int(candidates[0].get("id")) if candidates else None
             probable_id = lookup_cache[probable_name]
 
-        season_stats: dict[str, Any] = {}
-        career_stats: dict[str, Any] = {}
-        if probable_id is not None:
-            if probable_id not in stat_cache:
-                year_data = fetch_player_stat_data_bounded(probable_id, "yearByYear", policy, budget)
-                career_data = fetch_player_stat_data_bounded(probable_id, "career", policy, budget)
-                matched_year = {}
-                for row in year_data.get("stats", []) or []:
-                    if str(row.get("season")) == str(season):
-                        matched_year = row.get("stats") or {}
-                        break
-                career_stats_rows = career_data.get("stats", []) or []
-                matched_career = career_stats_rows[0].get("stats") if career_stats_rows else {}
-                stat_cache[probable_id] = (matched_year or {}, matched_career or {})
-            season_stats, career_stats = stat_cache[probable_id]
+        aggregate = prior_pitcher_aggregates.get(probable_id or -1)
+        derived_stats = _derive_rate_stats_from_pitcher_aggregate(aggregate) if aggregate else {}
+        has_prior_pitching = bool(aggregate and int(aggregate.get("outs", 0) or 0) > 0)
+        probable_known = 1 if probable_name else 0
+        if probable_known and has_prior_pitching:
+            stats_source = "statsapi.schedule+statsapi.lookup_player+statsapi.boxscore_data(prior_completed_games_only)"
+        elif probable_known:
+            stats_source = "leakage_safe_null_fallback(probable_pitcher_identity_without_prior_completed_pitching)"
+        else:
+            stats_source = "no_probable_pitcher_identity_available"
 
         rows.append(
             {
                 "game_id": game_id,
                 "side": side,
                 "pitcher_id": probable_id,
-                "pitcher_name": probable_name,
+                "pitcher_name": (aggregate or {}).get("pitcher_name") or probable_name,
                 "probable_pitcher_id": probable_id,
                 "probable_pitcher_name": probable_name,
-                "probable_pitcher_known": 1 if probable_name else 0,
-                "season_era": _to_float(season_stats.get("era")),
-                "season_whip": _to_float(season_stats.get("whip")),
-                "season_avg_allowed": _to_float(season_stats.get("avg")),
-                "season_runs_per_9": _to_float(season_stats.get("runsScoredPer9")),
-                "season_strike_pct": _to_float(season_stats.get("strikePercentage")),
-                "season_win_pct": _to_float(season_stats.get("winPercentage")),
-                "career_era": _to_float(career_stats.get("era")),
-                "stats_source": "statsapi.player_stat_data(type=yearByYear,career)+lookup_player",
+                "probable_pitcher_known": probable_known,
+                "season_era": derived_stats.get("season_era"),
+                "season_whip": derived_stats.get("season_whip"),
+                "season_avg_allowed": derived_stats.get("season_avg_allowed"),
+                "season_runs_per_9": derived_stats.get("season_runs_per_9"),
+                "season_strike_pct": derived_stats.get("season_strike_pct"),
+                "season_win_pct": derived_stats.get("season_win_pct"),
+                "career_era": None,
+                "stats_source": stats_source,
                 "stats_as_of_date": game_date,
-                "season_stats_scope": "full_season_year_aggregate",
-                "season_stats_leakage_risk": 1,
+                "season_stats_scope": "season_to_date_prior_completed_games" if probable_known else None,
+                "season_stats_leakage_risk": 0,
                 "source_updated_at": utc_now(),
             }
         )
+        if probable_name and not has_prior_pitching:
+            rows[-1]["pitcher_name"] = probable_name
     return rows
 
 
@@ -888,13 +1096,28 @@ def cmd_backfill_pitcher_context_2020(args: argparse.Namespace) -> None:
                 print(f"Pitcher context backfill complete for {partition_key}: {note}")
                 return
 
-            schedule_rows = fetch_schedule_bounded(config.request_policy, budget, season=2020, sportId=1)
-            schedule_by_game_id = {
-                _to_int(row.get("game_id")): row for row in schedule_rows if _to_int(row.get("game_id")) is not None
-            }
+            existing_identity_by_game_id = _existing_pitcher_identity_rows(conn, 2020)
+            schedule_fallback_used = False
+            try:
+                schedule_rows = fetch_schedule_bounded(config.request_policy, budget, season=2020, sportId=1)
+                schedule_by_game_id = {
+                    _to_int(row.get("game_id")): row for row in schedule_rows if _to_int(row.get("game_id")) is not None
+                }
+            except Exception:
+                schedule_by_game_id = {}
+                schedule_fallback_used = True
+            if existing_identity_by_game_id:
+                for game_id, existing in existing_identity_by_game_id.items():
+                    merged = dict(existing)
+                    merged.update(schedule_by_game_id.get(game_id, {}))
+                    schedule_by_game_id[game_id] = merged
+            if not schedule_by_game_id and game_ids:
+                raise RuntimeError("unable to source 2020 probable pitcher identities from statsapi or existing DB rows")
 
             lookup_cache: dict[str, int | None] = {}
-            stat_cache: dict[int, tuple[dict[str, Any], dict[str, Any]]] = {}
+            prior_pitcher_aggregates: dict[int, dict[str, Any]] = {}
+            boxscore_cache: dict[int, dict[str, Any]] = {}
+            boxscore_fallback_used = False
             rows_upserted = 0
             for idx, db_game in enumerate(games_2020, start=1):
                 game_id = int(db_game["game_id"])
@@ -906,13 +1129,21 @@ def cmd_backfill_pitcher_context_2020(args: argparse.Namespace) -> None:
                     schedule_row,
                     2020,
                     lookup_cache,
-                    stat_cache,
+                    prior_pitcher_aggregates,
                     config.request_policy,
                     budget,
                 )
                 for row in context_rows:
                     upsert_game_pitcher_context(conn, row)
                     rows_upserted += 1
+                status_row = conn.execute("SELECT status FROM games WHERE game_id = ?", (game_id,)).fetchone()
+                if status_row is not None and _is_completed_game(status_row["status"]):
+                    try:
+                        if game_id not in boxscore_cache:
+                            boxscore_cache[game_id] = fetch_boxscore_bounded(game_id, config.request_policy, budget)
+                        _update_pitcher_aggregate_from_boxscore(prior_pitcher_aggregates, boxscore_cache[game_id])
+                    except Exception:
+                        boxscore_fallback_used = True
                 last_game_id = game_id
                 if config.checkpoint_every > 0 and idx % config.checkpoint_every == 0:
                     upsert_checkpoint(
@@ -928,7 +1159,9 @@ def cmd_backfill_pitcher_context_2020(args: argparse.Namespace) -> None:
                 "season": 2020,
                 "games_seen": len(games_2020),
                 "rows_upserted": rows_upserted,
-                "distinct_pitchers_cached": len(stat_cache),
+                "distinct_pitchers_cached": len(prior_pitcher_aggregates),
+                "schedule_fallback_used": schedule_fallback_used,
+                "boxscore_fallback_used": boxscore_fallback_used,
             }
             upsert_checkpoint(
                 conn,
@@ -953,6 +1186,293 @@ def cmd_backfill_pitcher_context_2020(args: argparse.Namespace) -> None:
                 last_game_id=last_game_id,
             )
             finish_run(conn, run_id, "failed", note=error, request_count=budget.used)
+            raise
+
+
+def _build_team_feature_block(team_state: dict[str, Any] | None, game_date: str) -> dict[str, Any]:
+    team_state = team_state or {}
+    season_games = int(team_state.get("games", 0) or 0)
+    rolling_games = int(len(team_state.get("rolling", ())))
+    season_runs_for = float(team_state.get("runs_for", 0) or 0)
+    season_runs_against = float(team_state.get("runs_against", 0) or 0)
+    season_wins = float(team_state.get("wins", 0) or 0)
+    rolling = list(team_state.get("rolling", ()))
+    rolling_wins = sum(int(item.get("win", 0) or 0) for item in rolling)
+    last_completed = _parse_iso_date(team_state.get("last_completed_game_date")) if team_state.get("last_completed_game_date") else None
+    current_date = _parse_iso_date(game_date)
+    days_rest: int | None = None
+    doubleheader_flag = 0
+    if last_completed is not None and current_date is not None:
+        delta_days = (current_date - last_completed).days
+        days_rest = max(delta_days - 1, 0)
+        doubleheader_flag = 1 if delta_days == 0 else 0
+
+    def rolling_avg(key: str) -> float | None:
+        if not rolling:
+            return None
+        values = [float(item[key]) for item in rolling if item.get(key) is not None]
+        if not values:
+            return None
+        return _safe_round(sum(values) / len(values), 3)
+
+    return {
+        "strength_available": 1 if season_games > 0 else 0,
+        "season_games": season_games,
+        "season_win_pct": _safe_round(_safe_div(season_wins, season_games), 3),
+        "season_run_diff_per_game": _safe_round(_safe_div(season_runs_for - season_runs_against, season_games), 3),
+        "rolling_available": 1 if rolling_games > 0 else 0,
+        "rolling_games": rolling_games,
+        "rolling_last10_win_pct": _safe_round(_safe_div(float(rolling_wins), rolling_games), 3),
+        "rolling_last10_runs_for_per_game": rolling_avg("runs_for"),
+        "rolling_last10_runs_against_per_game": rolling_avg("runs_against"),
+        "rolling_last10_hits_per_game": rolling_avg("hits"),
+        "rolling_last10_ops": rolling_avg("ops"),
+        "rolling_last10_obp": rolling_avg("obp"),
+        "rolling_last10_batting_avg": rolling_avg("batting_avg"),
+        "days_rest": days_rest,
+        "doubleheader_flag": doubleheader_flag,
+    }
+
+
+def _build_pitcher_feature_block(row: sqlite3.Row | None) -> tuple[dict[str, Any], list[str]]:
+    if row is None:
+        return {
+            "starter_known": 0,
+            "starter_stats_available": 0,
+            "starter_id": None,
+            "starter_era": None,
+            "starter_whip": None,
+            "starter_avg_allowed": None,
+            "starter_runs_per_9": None,
+            "starter_strike_pct": None,
+            "starter_win_pct": None,
+            "starter_career_era": None,
+        }, ["missing_pitcher_context"]
+
+    stats_available = int(any(row[field] is not None for field in ("season_era", "season_whip", "season_avg_allowed", "season_runs_per_9", "season_strike_pct", "season_win_pct")))
+    issues: list[str] = []
+    if int(row["probable_pitcher_known"] or 0) and not stats_available:
+        issues.append("starter_stats_unavailable")
+    return {
+        "starter_known": int(row["probable_pitcher_known"] or 0),
+        "starter_stats_available": stats_available,
+        "starter_id": row["probable_pitcher_id"],
+        "starter_era": row["season_era"],
+        "starter_whip": row["season_whip"],
+        "starter_avg_allowed": row["season_avg_allowed"],
+        "starter_runs_per_9": row["season_runs_per_9"],
+        "starter_strike_pct": row["season_strike_pct"],
+        "starter_win_pct": row["season_win_pct"],
+        "starter_career_era": row["career_era"],
+    }, issues
+
+
+def _update_team_state(
+    team_states: dict[int, dict[str, Any]],
+    team_id: int,
+    game_date: str,
+    won: int,
+    runs_for: int,
+    runs_against: int,
+    team_stats_row: sqlite3.Row | None,
+) -> None:
+    state = team_states.setdefault(
+        team_id,
+        {
+            "games": 0,
+            "wins": 0,
+            "runs_for": 0,
+            "runs_against": 0,
+            "rolling": collections.deque(maxlen=10),
+            "last_completed_game_date": None,
+        },
+    )
+
+    state["games"] += 1
+    state["wins"] += int(won)
+    state["runs_for"] += runs_for
+    state["runs_against"] += runs_against
+    state["last_completed_game_date"] = game_date
+    state["rolling"].append(
+        {
+            "win": int(won),
+            "runs_for": runs_for,
+            "runs_against": runs_against,
+            "hits": team_stats_row["hits"] if team_stats_row is not None else None,
+            "ops": team_stats_row["ops"] if team_stats_row is not None else None,
+            "obp": team_stats_row["obp"] if team_stats_row is not None else None,
+            "batting_avg": team_stats_row["batting_avg"] if team_stats_row is not None else None,
+        }
+    )
+
+
+def cmd_materialize_feature_rows(args: argparse.Namespace) -> None:
+    if args.season != 2020:
+        raise ValueError("feature row materialization is restricted to season 2020 only")
+
+    config = build_config(args)
+    partition_key = f"feature-rows-season={args.season}:version={args.feature_version}"
+    with connect_db(config.db_path) as conn:
+        ensure_schema(conn)
+        run_id = start_run(conn, "backfill", partition_key=partition_key, config=config)
+        last_game_id: int | None = None
+        try:
+            games = conn.execute(
+                """
+                SELECT game_id, season, game_date, scheduled_datetime, status, home_team_id, away_team_id
+                FROM games
+                WHERE season = ?
+                ORDER BY game_date, game_id
+                """,
+                (args.season,),
+            ).fetchall()
+            team_stats_rows = conn.execute(
+                """
+                SELECT game_team_stats.game_id, game_team_stats.side, game_team_stats.hits,
+                       game_team_stats.batting_avg, game_team_stats.obp, game_team_stats.ops
+                FROM game_team_stats
+                INNER JOIN games ON games.game_id = game_team_stats.game_id
+                WHERE games.season = ?
+                """,
+                (args.season,),
+            ).fetchall()
+            pitcher_rows = conn.execute(
+                """
+                SELECT game_pitcher_context.*
+                FROM game_pitcher_context
+                INNER JOIN games ON games.game_id = game_pitcher_context.game_id
+                WHERE games.season = ?
+                """,
+                (args.season,),
+            ).fetchall()
+            labels = {
+                int(row["game_id"]): row
+                for row in conn.execute(
+                    """
+                    SELECT labels.*
+                    FROM labels
+                    INNER JOIN games ON games.game_id = labels.game_id
+                    WHERE games.season = ?
+                    """,
+                    (args.season,),
+                ).fetchall()
+            }
+
+            team_stats_by_key = {(int(row["game_id"]), str(row["side"])): row for row in team_stats_rows}
+            pitcher_by_key = {(int(row["game_id"]), str(row["side"])): row for row in pitcher_rows}
+            team_states: dict[int, dict[str, Any]] = {}
+            rows_upserted = 0
+
+            for idx, game in enumerate(games, start=1):
+                issues: list[str] = []
+                home_team_id = int(game["home_team_id"]) if game["home_team_id"] is not None else None
+                away_team_id = int(game["away_team_id"]) if game["away_team_id"] is not None else None
+                home_state = team_states.get(home_team_id or -1)
+                away_state = team_states.get(away_team_id or -1)
+                home_pitcher, home_pitcher_issues = _build_pitcher_feature_block(pitcher_by_key.get((int(game["game_id"]), "home")))
+                away_pitcher, away_pitcher_issues = _build_pitcher_feature_block(pitcher_by_key.get((int(game["game_id"]), "away")))
+                issues.extend(f"home_{issue}" for issue in home_pitcher_issues)
+                issues.extend(f"away_{issue}" for issue in away_pitcher_issues)
+
+                payload = {
+                    "game_id": int(game["game_id"]),
+                    "season": int(game["season"]),
+                    "game_date": str(game["game_date"]),
+                    "home_team_id": home_team_id,
+                    "away_team_id": away_team_id,
+                    "home_field_advantage": 1,
+                }
+                for prefix, block in (
+                    ("home", _build_team_feature_block(home_state, str(game["game_date"]))),
+                    ("away", _build_team_feature_block(away_state, str(game["game_date"]))),
+                ):
+                    for key, value in block.items():
+                        payload[f"{prefix}_team_{key}"] = value
+                for prefix, block in (("home", home_pitcher), ("away", away_pitcher)):
+                    for key, value in block.items():
+                        payload[f"{prefix}_{key}"] = value
+
+                upsert_feature_row(
+                    conn,
+                    {
+                        "game_id": int(game["game_id"]),
+                        "feature_version": args.feature_version,
+                        "as_of_ts": _feature_as_of_ts(game),
+                        "feature_payload_json": json.dumps(payload, sort_keys=True),
+                        "source_contract_status": "valid" if not issues else "degraded",
+                        "source_contract_issues_json": json.dumps(sorted(issues)) if issues else None,
+                    },
+                )
+                rows_upserted += 1
+                last_game_id = int(game["game_id"])
+
+                label = labels.get(last_game_id)
+                if (
+                    label is not None
+                    and home_team_id is not None
+                    and away_team_id is not None
+                    and _is_completed_game(game["status"])
+                ):
+                    home_team_stats = team_stats_by_key.get((last_game_id, "home"))
+                    away_team_stats = team_stats_by_key.get((last_game_id, "away"))
+                    _update_team_state(
+                        team_states,
+                        home_team_id,
+                        str(game["game_date"]),
+                        int(label["did_home_win"] or 0),
+                        int(label["home_score"] or 0),
+                        int(label["away_score"] or 0),
+                        home_team_stats,
+                    )
+                    _update_team_state(
+                        team_states,
+                        away_team_id,
+                        str(game["game_date"]),
+                        1 - int(label["did_home_win"] or 0),
+                        int(label["away_score"] or 0),
+                        int(label["home_score"] or 0),
+                        away_team_stats,
+                    )
+
+                if config.checkpoint_every > 0 and idx % config.checkpoint_every == 0:
+                    upsert_checkpoint(
+                        conn,
+                        job_name=FEATURE_ROWS_JOB,
+                        partition_key=partition_key,
+                        cursor={"season": args.season, "feature_version": args.feature_version, "games_seen": idx, "rows_upserted": rows_upserted},
+                        status="running",
+                        last_game_id=last_game_id,
+                    )
+
+            cursor = {
+                "season": args.season,
+                "feature_version": args.feature_version,
+                "games_seen": len(games),
+                "rows_upserted": rows_upserted,
+            }
+            upsert_checkpoint(
+                conn,
+                job_name=FEATURE_ROWS_JOB,
+                partition_key=partition_key,
+                cursor=cursor,
+                status="success",
+                last_game_id=last_game_id,
+            )
+            note = format_run_observability({"job": FEATURE_ROWS_JOB, **cursor})
+            finish_run(conn, run_id, "success", note=note, request_count=0)
+            print(f"Feature row materialization complete for {partition_key}: {note}")
+        except Exception as exc:
+            error = str(exc)
+            upsert_checkpoint(
+                conn,
+                job_name=FEATURE_ROWS_JOB,
+                partition_key=partition_key,
+                cursor={"season": args.season, "feature_version": args.feature_version},
+                status="failed",
+                last_error=error,
+                last_game_id=last_game_id,
+            )
+            finish_run(conn, run_id, "failed", note=error, request_count=0)
             raise
 
 
@@ -1289,6 +1809,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Backfill game_pitcher_context for season 2020 only",
     )
     pitcher_context.set_defaults(func=cmd_backfill_pitcher_context_2020)
+
+    feature_rows = subparsers.add_parser(
+        "materialize-feature-rows",
+        help="Materialize canonical feature_rows for season 2020 from existing support tables",
+    )
+    feature_rows.add_argument("--season", type=int, default=2020, help="Season to process (must be 2020)")
+    feature_rows.add_argument("--feature-version", default=FEATURE_VERSION_V1, help="Feature version tag (default: v1)")
+    feature_rows.set_defaults(func=cmd_materialize_feature_rows)
 
     dq = subparsers.add_parser("dq", help="Run data quality checks scaffold")
     dq.add_argument("--partition", help="Partition label, e.g. season=2024")

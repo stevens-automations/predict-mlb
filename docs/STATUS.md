@@ -20,11 +20,16 @@ Branch intent: `staging/preseason-consolidated` is the integration branch; `main
   - `init-db`
   - `backfill` (bounded statsapi schedule ingest)
   - `incremental` (bounded one-day schedule ingest)
+  - `backfill-team-stats` (2020 completed-game team boxscore backfill)
+  - `backfill-pitcher-context-2020` (2020 parity-safe starter context backfill from prior completed games only)
+  - `materialize-feature-rows` (2020 canonical `feature_rows(feature_version='v1')` materialization)
   - `dq`
 - Added canonical historical schema SQL at `scripts/sql/history_schema.sql`.
 - Added run/checkpoint ledger in DB (`ingestion_runs`, `ingestion_checkpoints`) with periodic/final checkpoint updates.
 - Added idempotent upsert helpers for `games` + `labels` (`did_home_win`, `run_differential`, `total_runs` for final games).
 - Added mocked tests for bounded backfill/incremental ingest behavior and idempotent upserts.
+- `game_pitcher_context` no longer depends on leakage-prone `player_stat_data(type=yearByYear)` season aggregates for 2020 backfill. Starter season metrics are derived as-of each game from previously completed boxscores when available; otherwise the command preserves starter identity and rewrites season fields to explicit leakage-safe null fallback with `season_stats_scope='season_to_date_prior_completed_games'` and `season_stats_leakage_risk=0`.
+- `feature_rows(feature_version='v1')` can now be materialized for 2020 from existing support tables with one canonical row per `(game_id, feature_version)`, stable `as_of_ts`, stale-snapshot cleanup, and explicit degraded/null behavior.
 
 ## Newly Aligned Direction (encoded)
 
@@ -38,9 +43,10 @@ Branch intent: `staging/preseason-consolidated` is the integration branch; `main
 
 ## Known Constraints / Open Gaps
 
-1. Historical training dataset is not yet materialized in `data/mlb_history.db`.
-2. Contract evaluators and DQ checks remain minimal placeholders.
-3. Odds snapshot table exists but should remain forward-only until explicit policy change.
+1. Multi-season historical training datasets are not yet materialized from `feature_rows + labels`.
+2. `feature_rows(v1)` currently covers only the 2020 starter subset and core baseline features; multi-season training extraction is not finished.
+3. Contract evaluators and DQ checks remain minimal placeholders beyond current 2020 validation coverage.
+4. Odds snapshot table exists but should remain forward-only until explicit policy change.
 
 ## Non-Goals (current phase)
 

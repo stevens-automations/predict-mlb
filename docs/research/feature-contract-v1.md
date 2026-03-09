@@ -632,11 +632,18 @@ This is the smallest pull set worth implementing next.
 - Game metadata
 - Team season-to-date win pct and run diff per game
 - Team rolling last-10-games win pct, runs for, runs against
-- Team rolling last-10-games hits, OPS, OBP, AVG, RBI, pitching strikeouts
+- Team rolling last-10-games hits, OPS, OBP, AVG
 - Probable starter known flag and ids
 - Starter season ERA, WHIP, runs per 9, AVG allowed, win pct
-- Career ERA
-- Days rest / doubleheader / travel flags
+- Days rest / doubleheader flags
+
+Current implemented 2020 contract:
+
+- `feature_rows(feature_version='v1')` is materialized from existing tables only.
+- Pitcher season stats must come from `game_pitcher_context` rows with:
+  - `season_stats_scope='season_to_date_prior_completed_games'`
+  - `season_stats_leakage_risk=0`
+- If there is no prior completed support for a team or probable starter, the corresponding numeric features remain `null` and availability flags stay explicit in the payload instead of backfilling from future-aware endpoints.
 
 If this pull set is completed, ingestion work can start immediately without waiting on injuries, weather, or top-5 leader reconstruction.
 

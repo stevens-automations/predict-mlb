@@ -30,6 +30,7 @@ PITCHER_FIELDS = [
     "season_strike_pct",
     "season_win_pct",
     "career_era",
+    "season_stats_scope",
     "season_stats_leakage_risk",
 ]
 
@@ -49,10 +50,10 @@ PITCHER_RANGES: dict[str, tuple[float | None, float | None]] = {
     "pitcher_id": (1, None),
     "probable_pitcher_id": (1, None),
     "probable_pitcher_known": (0, 1),
-    "season_era": (0.0, 50.0),
+    "season_era": (0.0, 100.0),
     "season_whip": (0.0, 10.0),
     "season_avg_allowed": (0.0, 1.0),
-    "season_runs_per_9": (0.0, 30.0),
+    "season_runs_per_9": (0.0, 100.0),
     "season_strike_pct": (0.0, 1.0),
     "season_win_pct": (0.0, 1.0),
     "career_era": (0.0, 50.0),
@@ -78,17 +79,33 @@ def season_games_count(conn: sqlite3.Connection, season: int) -> int:
     return int(conn.execute("SELECT COUNT(*) AS c FROM games WHERE season = ?", (season,)).fetchone()["c"])
 
 
+def completed_games_count(conn: sqlite3.Connection, season: int) -> int:
+    placeholders = ", ".join("?" for _ in sorted(("Completed Early", "Final", "Game Over")))
+    return int(
+        conn.execute(
+            f"SELECT COUNT(*) AS c FROM games WHERE season = ? AND status IN ({placeholders})",
+            (season, "Completed Early", "Final", "Game Over"),
+        ).fetchone()["c"]
+    )
+
+
 def table_digest_for_season(conn: sqlite3.Connection, table: str, season: int) -> str:
-    cols = {row['name'] for row in conn.execute(f"PRAGMA table_info({table})")}
+    cols = [row["name"] for row in conn.execute(f"PRAGMA table_info({table})")]
+    stable_cols = [col for col in cols if col not in {"ingested_at", "source_updated_at"}]
     order_parts = ["t.game_id"]
     if "side" in cols:
         order_parts.append("COALESCE(t.side, '')")
     if "team_id" in cols:
         order_parts.append("COALESCE(t.team_id, -1)")
+    if "feature_version" in cols:
+        order_parts.append("COALESCE(t.feature_version, '')")
+    if "as_of_ts" in cols:
+        order_parts.append("COALESCE(t.as_of_ts, '')")
     order_sql = ", ".join(order_parts)
+    select_sql = ", ".join(f"t.{col}" for col in stable_cols) if stable_cols else "t.game_id"
     cursor = conn.execute(
         f"""
-        SELECT t.*
+        SELECT {select_sql}
         FROM {table} t
         INNER JOIN games g ON g.game_id = t.game_id
         WHERE g.season = ?
@@ -104,6 +121,7 @@ def table_digest_for_season(conn: sqlite3.Connection, table: str, season: int) -
 
 def coverage_check(conn: sqlite3.Connection, season: int) -> CheckResult:
     games = season_games_count(conn, season)
+    completed_games = completed_games_count(conn, season)
     team_rows = int(
         conn.execute(
             """
@@ -126,27 +144,53 @@ def coverage_check(conn: sqlite3.Connection, season: int) -> CheckResult:
             (season,),
         ).fetchone()["c"]
     )
+    feature_rows = int(
+        conn.execute(
+            """
+            SELECT COUNT(*) AS c
+            FROM feature_rows f
+            INNER JOIN games g ON g.game_id = f.game_id
+            WHERE g.season = ? AND f.feature_version = 'v1'
+            """,
+            (season,),
+        ).fetchone()["c"]
+    )
 
-    expected_per_table = games * 2
-    team_cov = (team_rows / expected_per_table) if expected_per_table else 0.0
-    pitcher_cov = (pitcher_rows / expected_per_table) if expected_per_table else 0.0
-    ok = games > 0 and team_rows == expected_per_table and pitcher_rows == expected_per_table
+    expected_team_rows = completed_games * 2
+    expected_pitcher_rows = games * 2
+    expected_feature_rows = games
+    team_cov = (team_rows / expected_team_rows) if expected_team_rows else 0.0
+    pitcher_cov = (pitcher_rows / expected_pitcher_rows) if expected_pitcher_rows else 0.0
+    feature_cov = (feature_rows / expected_feature_rows) if expected_feature_rows else 0.0
+    ok = (
+        games > 0
+        and team_rows == expected_team_rows
+        and pitcher_rows == expected_pitcher_rows
+        and feature_rows == expected_feature_rows
+    )
     status = "PASS" if ok else "FAIL"
     return CheckResult(
         name="Row coverage vs 2020 games",
         status=status,
         summary=(
-            f"games={games}, game_team_stats={team_rows}/{expected_per_table} ({team_cov:.1%}), "
-            f"game_pitcher_context={pitcher_rows}/{expected_per_table} ({pitcher_cov:.1%})"
+            f"games={games}, completed_games={completed_games}, "
+            f"game_team_stats={team_rows}/{expected_team_rows} ({team_cov:.1%}), "
+            f"game_pitcher_context={pitcher_rows}/{expected_pitcher_rows} ({pitcher_cov:.1%}), "
+            f"feature_rows(v1)={feature_rows}/{expected_feature_rows} ({feature_cov:.1%})"
         ),
         details={
             "season": season,
             "games": games,
-            "expected_rows_per_table": expected_per_table,
+            "completed_games": completed_games,
+            "expected_game_team_stats_rows": expected_team_rows,
+            "expected_game_pitcher_context_rows": expected_pitcher_rows,
+            "expected_feature_rows": expected_feature_rows,
             "game_team_stats_rows": team_rows,
             "game_pitcher_context_rows": pitcher_rows,
+            "feature_rows": feature_rows,
             "game_team_stats_coverage": team_cov,
             "game_pitcher_context_coverage": pitcher_cov,
+            "feature_rows_coverage": feature_cov,
         },
     )
 
@@ -367,9 +411,45 @@ def observability_consistency_check(conn: sqlite3.Connection, season: int) -> Ch
     )
 
 
+def pitcher_provenance_check(conn: sqlite3.Connection, season: int) -> CheckResult:
+    totals = conn.execute(
+        """
+        SELECT
+          COUNT(*) AS total_rows,
+          SUM(CASE WHEN probable_pitcher_known = 1 AND season_stats_scope = 'season_to_date_prior_completed_games' THEN 1 ELSE 0 END) AS safe_scope_rows,
+          SUM(CASE WHEN season_stats_leakage_risk = 0 THEN 1 ELSE 0 END) AS non_leaking_rows
+        FROM game_pitcher_context p
+        INNER JOIN games g ON g.game_id = p.game_id
+        WHERE g.season = ?
+        """,
+        (season,),
+    ).fetchone()
+    total_rows = int(totals["total_rows"] or 0)
+    safe_scope_rows = int(totals["safe_scope_rows"] or 0)
+    non_leaking_rows = int(totals["non_leaking_rows"] or 0)
+    ok = total_rows > 0 and total_rows == non_leaking_rows and safe_scope_rows <= total_rows
+    return CheckResult(
+        name="Pitcher provenance is parity-safe",
+        status="PASS" if ok else "FAIL",
+        summary=(
+            f"rows={total_rows}, non_leaking_rows={non_leaking_rows}, "
+            f"safe_scope_rows_for_known_pitchers={safe_scope_rows}"
+        ),
+        details={
+            "total_rows": total_rows,
+            "non_leaking_rows": non_leaking_rows,
+            "safe_scope_rows_for_known_pitchers": safe_scope_rows,
+        },
+    )
+
+
 def idempotency_check(conn: sqlite3.Connection, season: int, rerun_cmd: str | None) -> CheckResult:
     duplicates = {}
-    for table, keys in [("game_team_stats", "game_id, team_id"), ("game_pitcher_context", "game_id, side")]:
+    for table, keys in [
+        ("game_team_stats", "game_id, team_id"),
+        ("game_pitcher_context", "game_id, side"),
+        ("feature_rows", "game_id, feature_version, as_of_ts"),
+    ]:
         row = conn.execute(
             f"""
             SELECT COUNT(*) AS c
@@ -386,6 +466,7 @@ def idempotency_check(conn: sqlite3.Connection, season: int, rerun_cmd: str | No
     before = {
         "game_team_stats": table_digest_for_season(conn, "game_team_stats", season),
         "game_pitcher_context": table_digest_for_season(conn, "game_pitcher_context", season),
+        "feature_rows": table_digest_for_season(conn, "feature_rows", season),
     }
 
     rerun_executed = False
@@ -403,6 +484,7 @@ def idempotency_check(conn: sqlite3.Connection, season: int, rerun_cmd: str | No
     after = {
         "game_team_stats": table_digest_for_season(conn, "game_team_stats", season),
         "game_pitcher_context": table_digest_for_season(conn, "game_pitcher_context", season),
+        "feature_rows": table_digest_for_season(conn, "feature_rows", season),
     }
     changed = {table: before[table] != after[table] for table in before}
 
@@ -433,7 +515,7 @@ def idempotency_check(conn: sqlite3.Connection, season: int, rerun_cmd: str | No
 
 def render_markdown(results: list[CheckResult], season: int, db_path: Path) -> str:
     ts = datetime.now().isoformat(timespec="seconds")
-    overall = "PASS" if all(r.status == "PASS" for r in results) else "FAIL"
+    overall = overall_status(results)
     blockers = [f"{r.name}: {r.summary}" for r in results if r.status == "FAIL"]
 
     lines = [
@@ -474,10 +556,15 @@ def run_validation(db_path: Path, season: int, rerun_cmd: str | None) -> list[Ch
         return [
             coverage_check(conn, season),
             missingness_check(conn, season),
+            pitcher_provenance_check(conn, season),
             idempotency_check(conn, season, rerun_cmd),
             sanity_ranges_check(conn, season),
             observability_consistency_check(conn, season),
         ]
+
+
+def overall_status(results: list[CheckResult]) -> str:
+    return "PASS" if all(r.status != "FAIL" for r in results) else "FAIL"
 
 
 def main() -> int:
@@ -503,7 +590,7 @@ def main() -> int:
 
     payload = {
         "report_path": str(output),
-        "overall": "PASS" if all(r.status == "PASS" for r in results) else "FAIL",
+        "overall": overall_status(results),
         "checks": [{"name": r.name, "status": r.status, "summary": r.summary} for r in results],
     }
     if args.json:

@@ -2,20 +2,20 @@
 
 Last updated: 2026-03-09
 
-## Priority 1 — Activate Historical Ingestion Beyond Scaffold
+## Priority 1 — Complete Multi-Season Historical Training Readiness
 
-Current scaffold exists at `scripts/history_ingest.py` and schema at `scripts/sql/history_schema.sql`.
+Current implemented base exists at `scripts/history_ingest.py` and schema at `scripts/sql/history_schema.sql`.
 
 Next implementation step:
-- Replace safe stubs in `backfill` / `incremental` with bounded statsapi execution loops.
-- Preserve checkpointed resume semantics and request budget controls to minimize statsapi calls.
+- Extend parity-safe pitcher context and `feature_rows(v1)` materialization beyond 2020.
+- Build reproducible training extracts from `feature_rows + labels` across multiple seasons.
+- Preserve checkpointed resume semantics and request budget controls for request-heavy enrichment jobs.
 - Keep odds ingestion forward-only.
-- Keep incremental cadence at pre-game + post-game only for v1.
 
 ### Acceptance criteria
-- Controlled sample partition pull succeeds (one month or one season slice).
-- Re-run of same partition is idempotent (stable counts, no duplicate PK rows).
-- Checkpoint resume works after forced interruption.
+- 2020 baseline remains stable, leakage-safe, and idempotent after reruns.
+- Seasons beyond 2020 can be materialized without leakage regressions.
+- Training extract generation is reproducible and version-tagged.
 
 ---
 

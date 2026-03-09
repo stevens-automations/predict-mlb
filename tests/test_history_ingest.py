@@ -14,6 +14,7 @@ from scripts.history_ingest import (
     ensure_schema,
     upsert_checkpoint,
     upsert_game,
+    upsert_game_pitcher_context,
     upsert_game_team_stats,
 )
 
@@ -167,22 +168,23 @@ class TestHistoryIngestSchemaAndUpserts(unittest.TestCase):
 
 
 class TestHistoryIngestCommands(unittest.TestCase):
-    def test_backfill_pitcher_context_2020_maps_fields_and_is_idempotent(self) -> None:
+    def test_backfill_pitcher_context_2020_derives_parity_safe_stats_and_is_idempotent(self) -> None:
         with TemporaryDirectory() as td:
             db_path = Path(td) / "history.db"
             with connect_db(str(db_path)) as conn:
                 ensure_schema(conn)
-                upsert_game(
-                    conn,
-                    {
-                        "game_id": 3001,
-                        "season": 2020,
-                        "game_date": "2020-08-01",
-                        "status": "Final",
-                        "home_team_id": 147,
-                        "away_team_id": 121,
-                    },
-                )
+                for game_id, game_date in ((3001, "2020-08-01"), (3002, "2020-08-05")):
+                    upsert_game(
+                        conn,
+                        {
+                            "game_id": game_id,
+                            "season": 2020,
+                            "game_date": game_date,
+                            "status": "Final",
+                            "home_team_id": 147,
+                            "away_team_id": 121,
+                        },
+                    )
 
             parser = build_parser()
             args = parser.parse_args(["--db", str(db_path), "--checkpoint-every", "1", "backfill-pitcher-context-2020"])
@@ -192,6 +194,13 @@ class TestHistoryIngestCommands(unittest.TestCase):
                     "game_id": 3001,
                     "season": 2020,
                     "game_date": "2020-08-01",
+                    "home_probable_pitcher": "Home Starter",
+                    "away_probable_pitcher": "Away Starter",
+                },
+                {
+                    "game_id": 3002,
+                    "season": 2020,
+                    "game_date": "2020-08-05",
                     "home_probable_pitcher": "Home Starter",
                     "away_probable_pitcher": "Away Starter",
                 }
@@ -204,31 +213,55 @@ class TestHistoryIngestCommands(unittest.TestCase):
                     return [{"id": 502}]
                 return []
 
-            def fake_player_stat_data(player_id, group=None, type=None):
-                if type == "yearByYear":
+            def fake_boxscore_data(game_id):
+                if game_id == 3001:
                     return {
-                        "stats": [
-                            {
-                                "season": "2020",
-                                "stats": {
-                                    "era": "3.10",
-                                    "whip": "1.08",
-                                    "avg": "0.220",
-                                    "runsScoredPer9": "3.4",
-                                    "strikePercentage": "67.2",
-                                    "winPercentage": ".650",
-                                },
+                        "decisions": {"winner": {"id": 501}, "loser": {"id": 502}},
+                        "home": {
+                            "players": {
+                                "ID501": {
+                                    "person": {"id": 501, "fullName": "Home Starter"},
+                                    "stats": {
+                                        "pitching": {
+                                            "inningsPitched": "6.0",
+                                            "hits": 4,
+                                            "baseOnBalls": 2,
+                                            "earnedRuns": 2,
+                                            "runs": 2,
+                                            "atBats": 24,
+                                            "strikes": 60,
+                                            "numberOfPitches": 90,
+                                        }
+                                    },
+                                }
                             }
-                        ]
+                        },
+                        "away": {
+                            "players": {
+                                "ID502": {
+                                    "person": {"id": 502, "fullName": "Away Starter"},
+                                    "stats": {
+                                        "pitching": {
+                                            "inningsPitched": "5.0",
+                                            "hits": 7,
+                                            "baseOnBalls": 1,
+                                            "earnedRuns": 4,
+                                            "runs": 4,
+                                            "atBats": 22,
+                                            "strikes": 50,
+                                            "numberOfPitches": 80,
+                                        }
+                                    },
+                                }
+                            }
+                        },
                     }
-                if type == "career":
-                    return {"stats": [{"stats": {"era": "3.55"}}]}
-                return {}
+                return {"home": {"players": {}}, "away": {"players": {}}}
 
             stub_statsapi = types.SimpleNamespace(
                 schedule=lambda **_kwargs: schedule_rows,
                 lookup_player=fake_lookup_player,
-                player_stat_data=fake_player_stat_data,
+                boxscore_data=fake_boxscore_data,
             )
 
             with patch("scripts.history_ingest.statsapi", stub_statsapi):
@@ -243,12 +276,11 @@ class TestHistoryIngestCommands(unittest.TestCase):
                            season_strike_pct, season_win_pct, career_era,
                            stats_source, stats_as_of_date, season_stats_scope, season_stats_leakage_risk
                     FROM game_pitcher_context
-                    WHERE game_id=3001
-                    ORDER BY side
+                    ORDER BY game_id, side
                     """
                 ).fetchall()
                 row_count = conn.execute(
-                    "SELECT COUNT(*) AS c FROM game_pitcher_context WHERE game_id=3001"
+                    "SELECT COUNT(*) AS c FROM game_pitcher_context"
                 ).fetchone()["c"]
                 checkpoint = conn.execute(
                     """
@@ -258,26 +290,98 @@ class TestHistoryIngestCommands(unittest.TestCase):
                     """
                 ).fetchone()
 
-            self.assertEqual(row_count, 2)
-            self.assertEqual(len(rows), 2)
-            self.assertEqual(rows[0]["game_id"], 3001)
-            self.assertEqual(rows[0]["season_era"], 3.1)
-            self.assertEqual(rows[0]["season_whip"], 1.08)
-            self.assertEqual(rows[0]["season_avg_allowed"], 0.22)
-            self.assertEqual(rows[0]["season_runs_per_9"], 3.4)
-            self.assertEqual(rows[0]["season_strike_pct"], 67.2)
-            self.assertEqual(rows[0]["season_win_pct"], 0.65)
-            self.assertEqual(rows[0]["career_era"], 3.55)
-            self.assertEqual(rows[0]["stats_as_of_date"], "2020-08-01")
-            self.assertEqual(rows[0]["season_stats_scope"], "full_season_year_aggregate")
-            self.assertEqual(rows[0]["season_stats_leakage_risk"], 1)
-            self.assertIn("player_stat_data", rows[0]["stats_source"])
+            self.assertEqual(row_count, 4)
+            self.assertEqual(len(rows), 4)
+            first_game_home = next(row for row in rows if row["game_id"] == 3001 and row["side"] == "home")
+            second_game_home = next(row for row in rows if row["game_id"] == 3002 and row["side"] == "home")
+            second_game_away = next(row for row in rows if row["game_id"] == 3002 and row["side"] == "away")
+
+            self.assertIsNone(first_game_home["season_era"])
+            self.assertEqual(second_game_home["season_era"], 3.0)
+            self.assertEqual(second_game_home["season_whip"], 1.0)
+            self.assertEqual(second_game_home["season_avg_allowed"], 0.167)
+            self.assertEqual(second_game_home["season_runs_per_9"], 3.0)
+            self.assertEqual(second_game_home["season_strike_pct"], 0.667)
+            self.assertEqual(second_game_home["season_win_pct"], 1.0)
+            self.assertIsNone(second_game_home["career_era"])
+            self.assertEqual(second_game_home["stats_as_of_date"], "2020-08-05")
+            self.assertEqual(second_game_home["season_stats_scope"], "season_to_date_prior_completed_games")
+            self.assertEqual(second_game_home["season_stats_leakage_risk"], 0)
+            self.assertIn("prior_completed_games_only", second_game_home["stats_source"])
+            self.assertEqual(second_game_away["season_era"], 7.2)
+            self.assertEqual(second_game_away["season_whip"], 1.6)
+            self.assertEqual(second_game_away["season_avg_allowed"], 0.318)
+            self.assertEqual(second_game_away["season_runs_per_9"], 7.2)
+            self.assertEqual(second_game_away["season_strike_pct"], 0.625)
+            self.assertEqual(second_game_away["season_win_pct"], 0.0)
             self.assertEqual(checkpoint["status"], "success")
             self.assertGreaterEqual(checkpoint["attempts"], 2)
             checkpoint_cursor = json.loads(checkpoint["cursor_json"])
             self.assertEqual(checkpoint_cursor["season"], 2020)
-            self.assertEqual(checkpoint_cursor["games_seen"], 1)
-            self.assertEqual(checkpoint_cursor["rows_upserted"], 2)
+            self.assertEqual(checkpoint_cursor["games_seen"], 2)
+            self.assertEqual(checkpoint_cursor["rows_upserted"], 4)
+
+    def test_backfill_pitcher_context_2020_falls_back_to_existing_identity_without_leakage(self) -> None:
+        with TemporaryDirectory() as td:
+            db_path = Path(td) / "history.db"
+            with connect_db(str(db_path)) as conn:
+                ensure_schema(conn)
+                upsert_game(
+                    conn,
+                    {
+                        "game_id": 3010,
+                        "season": 2020,
+                        "game_date": "2020-08-06",
+                        "status": "Final",
+                        "home_team_id": 147,
+                        "away_team_id": 121,
+                    },
+                )
+                for side, pitcher_id, pitcher_name in (("home", 610, "Fallback Home"), ("away", 611, "Fallback Away")):
+                    upsert_game_pitcher_context(
+                        conn,
+                        {
+                            "game_id": 3010,
+                            "side": side,
+                            "pitcher_id": pitcher_id,
+                            "pitcher_name": pitcher_name,
+                            "probable_pitcher_id": pitcher_id,
+                            "probable_pitcher_name": pitcher_name,
+                            "probable_pitcher_known": 1,
+                            "season_era": 4.5,
+                            "season_whip": 1.3,
+                            "season_stats_scope": "full_season_year_aggregate",
+                            "season_stats_leakage_risk": 1,
+                            "stats_source": "statsapi.player_stat_data(type=yearByYear,career)+lookup_player",
+                        },
+                    )
+
+            parser = build_parser()
+            args = parser.parse_args(["--db", str(db_path), "backfill-pitcher-context-2020"])
+
+            with patch("scripts.history_ingest.statsapi", None):
+                args.func(args)
+
+            with connect_db(str(db_path)) as conn:
+                rows = conn.execute(
+                    """
+                    SELECT side, probable_pitcher_id, probable_pitcher_name, probable_pitcher_known,
+                           season_era, season_whip, season_stats_scope, season_stats_leakage_risk, stats_source
+                    FROM game_pitcher_context
+                    WHERE game_id = 3010
+                    ORDER BY side
+                    """
+                ).fetchall()
+
+            self.assertEqual(len(rows), 2)
+            for row in rows:
+                self.assertEqual(row["probable_pitcher_known"], 1)
+                self.assertIn(row["probable_pitcher_name"], {"Fallback Home", "Fallback Away"})
+                self.assertIsNone(row["season_era"])
+                self.assertIsNone(row["season_whip"])
+                self.assertEqual(row["season_stats_scope"], "season_to_date_prior_completed_games")
+                self.assertEqual(row["season_stats_leakage_risk"], 0)
+                self.assertIn("leakage_safe_null_fallback", row["stats_source"])
 
     def test_backfill_ingests_bounded_schedule_and_labels_idempotently(self) -> None:
         with TemporaryDirectory() as td:
@@ -640,6 +744,155 @@ class TestHistoryIngestCommands(unittest.TestCase):
             self.assertEqual(second_note["rows_updated"], 2)
             self.assertEqual(checkpoint["status"], "success")
             self.assertGreaterEqual(checkpoint["attempts"], 2)
+
+    def test_materialize_feature_rows_v1_is_idempotent(self) -> None:
+        with TemporaryDirectory() as td:
+            db_path = Path(td) / "history.db"
+            parser = build_parser()
+            args = parser.parse_args(
+                ["--db", str(db_path), "--checkpoint-every", "1", "materialize-feature-rows", "--season", "2020"]
+            )
+
+            with connect_db(str(db_path)) as conn:
+                ensure_schema(conn)
+                for game_id, game_date, home_score, away_score in (
+                    (5001, "2020-07-24", 5, 3),
+                    (5002, "2020-07-25", 4, 2),
+                ):
+                    upsert_game(
+                        conn,
+                        {
+                            "game_id": game_id,
+                            "season": 2020,
+                            "game_date": game_date,
+                            "scheduled_datetime": f"{game_date}T23:05:00Z",
+                            "status": "Final",
+                            "home_team_id": 147,
+                            "away_team_id": 121,
+                            "home_score": home_score,
+                            "away_score": away_score,
+                            "winning_team_id": 147,
+                        },
+                    )
+                conn.execute(
+                    """
+                    INSERT INTO feature_rows (
+                      game_id, feature_version, as_of_ts, feature_payload_json, source_contract_status
+                    )
+                    VALUES (5002, 'v1', '2020-07-25T00:00:00Z', '{}', 'degraded')
+                    """
+                )
+                conn.execute(
+                    """
+                    INSERT INTO labels (game_id, did_home_win, home_score, away_score, run_differential, total_runs)
+                    VALUES
+                      (5001, 1, 5, 3, 2, 8),
+                      (5002, 1, 4, 2, 2, 6)
+                    """
+                )
+                for payload in (
+                    {"game_id": 5001, "team_id": 147, "side": "home", "hits": 9, "batting_avg": 0.281, "obp": 0.340, "ops": 0.790},
+                    {"game_id": 5001, "team_id": 121, "side": "away", "hits": 7, "batting_avg": 0.245, "obp": 0.300, "ops": 0.680},
+                    {"game_id": 5002, "team_id": 147, "side": "home", "hits": 8, "batting_avg": 0.260, "obp": 0.330, "ops": 0.760},
+                    {"game_id": 5002, "team_id": 121, "side": "away", "hits": 6, "batting_avg": 0.230, "obp": 0.295, "ops": 0.650},
+                ):
+                    upsert_game_team_stats(conn, payload)
+                for side, pitcher_id, era, whip in (
+                    ("home", 501, None, None),
+                    ("away", 502, None, None),
+                ):
+                    upsert_game_pitcher_context(
+                        conn,
+                        {
+                            "game_id": 5001,
+                            "side": side,
+                            "probable_pitcher_id": pitcher_id,
+                            "probable_pitcher_name": f"{side} starter 1",
+                            "probable_pitcher_known": 1,
+                            "season_era": era,
+                            "season_whip": whip,
+                            "season_stats_scope": "season_to_date_prior_completed_games",
+                            "season_stats_leakage_risk": 0,
+                        },
+                    )
+                for side, pitcher_id, era, whip in (
+                    ("home", 501, 3.0, 1.0),
+                    ("away", 502, 7.2, 1.6),
+                ):
+                    upsert_game_pitcher_context(
+                        conn,
+                        {
+                            "game_id": 5002,
+                            "side": side,
+                            "probable_pitcher_id": pitcher_id,
+                            "probable_pitcher_name": f"{side} starter 2",
+                            "probable_pitcher_known": 1,
+                            "season_era": era,
+                            "season_whip": whip,
+                            "season_avg_allowed": 0.25,
+                            "season_runs_per_9": era,
+                            "season_strike_pct": 0.66,
+                            "season_win_pct": 1.0 if side == "home" else 0.0,
+                            "season_stats_scope": "season_to_date_prior_completed_games",
+                            "season_stats_leakage_risk": 0,
+                        },
+                    )
+
+            args.func(args)
+            args.func(args)
+
+            with connect_db(str(db_path)) as conn:
+                row_count = conn.execute(
+                    "SELECT COUNT(*) AS c FROM feature_rows WHERE feature_version='v1'"
+                ).fetchone()["c"]
+                second_game = conn.execute(
+                    """
+                    SELECT as_of_ts, feature_payload_json, source_contract_status
+                    FROM feature_rows
+                    WHERE game_id=5002 AND feature_version='v1'
+                    """
+                ).fetchone()
+                first_game = conn.execute(
+                    """
+                    SELECT source_contract_status, source_contract_issues_json
+                    FROM feature_rows
+                    WHERE game_id=5001 AND feature_version='v1'
+                    """
+                ).fetchone()
+                checkpoint = conn.execute(
+                    """
+                    SELECT status, attempts, cursor_json
+                    FROM ingestion_checkpoints
+                    WHERE job_name='feature-rows-v1-2020' AND partition_key='feature-rows-season=2020:version=v1'
+                    """
+                ).fetchone()
+                run_notes = conn.execute(
+                    """
+                    SELECT note
+                    FROM ingestion_runs
+                    WHERE partition_key='feature-rows-season=2020:version=v1'
+                    ORDER BY started_at
+                    """
+                ).fetchall()
+
+            payload = json.loads(second_game["feature_payload_json"])
+            self.assertEqual(row_count, 2)
+            self.assertEqual(second_game["as_of_ts"], "2020-07-25T23:05:00Z")
+            self.assertEqual(second_game["source_contract_status"], "valid")
+            self.assertEqual(first_game["source_contract_status"], "degraded")
+            self.assertEqual(json.loads(first_game["source_contract_issues_json"]), ["away_starter_stats_unavailable", "home_starter_stats_unavailable"])
+            self.assertEqual(payload["home_team_strength_available"], 1)
+            self.assertEqual(payload["home_team_season_games"], 1)
+            self.assertEqual(payload["home_team_season_win_pct"], 1.0)
+            self.assertEqual(payload["home_team_rolling_last10_hits_per_game"], 9.0)
+            self.assertEqual(payload["away_team_season_run_diff_per_game"], -2.0)
+            self.assertEqual(payload["home_starter_stats_available"], 1)
+            self.assertEqual(payload["home_starter_era"], 3.0)
+            self.assertEqual(payload["away_starter_whip"], 1.6)
+            self.assertEqual(checkpoint["status"], "success")
+            self.assertGreaterEqual(checkpoint["attempts"], 2)
+            self.assertEqual(json.loads(checkpoint["cursor_json"])["rows_upserted"], 2)
+            self.assertEqual(len(run_notes), 2)
 
 
 if __name__ == "__main__":
