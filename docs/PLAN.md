@@ -1,66 +1,69 @@
-# Remaining Work Plan (Reliability-First)
+# Remaining Work Plan (Reliability-First, New-Model Track)
 
 Last updated: 2026-03-09
 
-## Priority 1 — Data Reliability Contract (Hard Gate)
+## Priority 1 — Implement Historical Ingestion Foundation (statsapi -> SQLite)
 
-Define and implement explicit requirements for every prediction input:
-- Required fields and source ownership
-- Freshness SLA
-- Missingness threshold
-- Fail-closed behavior for must-have features
-- Degrade-gracefully behavior for optional features
+Build `scripts/history_ingest.py` and schema for `data/mlb_history.db` with:
+- Canonical tables (`games`, `team_game_stats`, `pitcher_game_context`, `odds_snapshots`, `feature_snapshots`)
+- Run/checkpoint tracking (`ingestion_runs`, `ingestion_checkpoints`)
+- Idempotent upserts and resumable partition processing
 
 ### Acceptance criteria
-- Machine-checkable preflight validates all required inputs before prediction run.
-- Run aborts safely on must-have contract violation.
+- One sample month ingests successfully.
+- Re-run of same partition creates no duplicates and stable row counts.
+- Checkpoint resume works after interruption.
 
 ---
 
-## Priority 2 — Retrain + Evaluate with Real Historical Data
+## Priority 2 — Backfill Historical Dataset (2020–2025)
 
-Use `scripts/model_refresh.py` with production-like historical dataset.
-- Compare baseline vs stronger candidate in walk-forward validation.
-- Promote only if metrics improve within reliability and complexity limits.
+Run controlled season-by-season backfill with retry/backoff/circuit policies and DQ checks.
 
 ### Acceptance criteria
-- Evaluation report generated and stored under `docs/research/` or `docs/archive/`.
-- Clear model promotion decision with rollback-ready baseline retained.
+- Seasons 2020–2025 completed or explicitly marked with actionable blocked reasons.
+- DQ summaries produced per partition.
+- Feature snapshot coverage reaches agreed threshold for final games.
 
 ---
 
-## Priority 3 — Implement Top Accuracy Quick Wins (No Overhaul)
+## Priority 3 — Data Reliability Contract + Degraded Prediction Mode
 
-Execute highest ROI/lowest risk items from:
-- `docs/research/accuracy-improvement-memo.md`
+Implement strict input contracts with explicit must-have vs optional fields.
+- Must-have failures trigger degraded-mode prediction path (not silent skip)
+- Each degraded prediction emits reason codes + incident records
+- Recurring failures become fix-queue items
 
 ### Acceptance criteria
-- Changes are incremental, feature-flagged where appropriate.
-- Backtest + replay results demonstrate measurable quality lift or are reverted.
+- Contract checks run pre-prediction.
+- No game silently skipped due to data errors.
+- Incident logging/audit trail exists for degraded runs.
 
 ---
 
-## Priority 4 — Shadow / Replay Validation Gate
+## Priority 4 — Exploratory Model Lab (Not Legacy Replication)
 
-Run deterministic preseason rehearsal end-to-end:
-- Simulation mode replay
-- No-post dry run
-- Reliability path verification (retry/circuit/fallback behavior)
+Create iterative training/evaluation workflow on historical DB:
+- Start with recommended primary metric: **log loss**
+- Track secondary: Brier, calibration, accuracy
+- Compare multiple candidates and feature-set versions
 
 ### Acceptance criteria
-- Test suite passes.
-- Preflight + healthcheck pass.
-- No critical guardrail violations.
+- Experiment matrix and reports are reproducible.
+- At least baseline + one stronger candidate trained/evaluated on walk-forward splits.
+- Promotion candidates include reliability feasibility assessment.
 
 ---
 
-## Priority 5 — Promotion Readiness
+## Priority 5 — Safe Promotion Gates on Staging
 
-Only after priorities 1–4 pass:
-- Freeze staging branch
-- Final go-live checklist review
-- Decide promotion to `main`
+Gate any production promotion on:
+- ingestion/data-quality health
+- model quality improvements
+- operational reliability checks
+- rollback readiness
 
 ### Acceptance criteria
 - Explicit go/no-go decision documented.
-- Rollback path documented and tested.
+- Staging checklist completed.
+- Promotion to `main` only by explicit approval.

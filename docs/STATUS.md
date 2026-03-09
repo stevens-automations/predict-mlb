@@ -11,7 +11,7 @@ Branch intent: `staging/preseason-consolidated` is the integration branch; `main
 - Runtime guardrail warnings and structured logging coverage.
 
 ### Storage
-- SQLite-first runtime storage path.
+- SQLite-first runtime storage path for prediction outputs.
 - Transactional replace/upsert safety and rollback behavior covered by tests.
 - SQLite healthcheck utility and operating runbook available.
 
@@ -21,7 +21,7 @@ Branch intent: `staging/preseason-consolidated` is the integration branch; `main
 - Dry-run / no-post behavior for safe rehearsal.
 
 ### Prediction Quality Guardrails
-- Anomaly warning gating now requires both rate breach and minimum sample/count thresholds.
+- Anomaly warning gating requires rate breach + minimum sample/count thresholds.
 - Configurable warning thresholds via env vars.
 
 ### Explanation Layer Guardrails
@@ -32,14 +32,23 @@ Branch intent: `staging/preseason-consolidated` is the integration branch; `main
 - Unit/integration-style tests for reliability, simulation mode, guardrails, storage transactions, and healthcheck.
 - Current suite passes in project venv (`45 passed`).
 
+## Newly Aligned Direction
+
+- We are **not** trying to replicate legacy Excel outputs as the main objective.
+- We are building a robust historical stats foundation from `statsapi` for iterative new-model development.
+- Historical source of truth will be local SQLite at `data/mlb_history.db`.
+- Initial backfill scope is `2020–2025`, then extend if useful.
+- Data policy is strict quality enforcement with **degraded fallback predictions**, incident logging, and root-cause fixes (not silent game skipping).
+
 ## Known Constraints / Open Gaps
 
-1. Model-refresh scaffold exists, but full retrain/eval requires reliable historical training dataset availability.
-2. Circuit-breaker state is process-memory scoped (not persisted across restart).
-3. Accuracy upgrades from research memo are not fully implemented yet (recommendations exist; staged execution pending).
-4. Need formalized data reliability contract (must-have vs optional inputs, freshness/missingness SLAs).
+1. Historical ingestion pipeline (`history_ingest`) is planned but not implemented yet.
+2. Historical training dataset is not yet materialized in the new DB.
+3. Model experimentation framework is partially scaffolded but still anchored to older assumptions.
+4. Data reliability contract tables/rules are not yet codified in code.
+5. Circuit-breaker state is process-memory scoped (not persisted across restart).
 
 ## Non-Goals (current phase)
 
-- No full modeling stack overhaul.
-- No production promotion to `main` until staging validation and acceptance gates are complete.
+- No rushed promotion to `main` before staging validation and acceptance gates are complete.
+- No full architecture rewrite before foundational ingestion + experimentation loop is established.
