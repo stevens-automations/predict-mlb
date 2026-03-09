@@ -1,11 +1,11 @@
-# Historical Ingestion Runbook (Scaffold Phase)
+# Historical Ingestion Runbook (Bounded Schedule + Labels)
 
 Last updated: 2026-03-09
 
 ## Purpose
 
-This runbook covers the **approved-safe scaffold** for historical MLB ingestion.
-Current scope is schema + control-plane metadata only. No long-running historical pull is executed by default.
+This runbook covers bounded historical ingestion for schedule + labels into SQLite.
+Scope includes game schedule pulls, idempotent game/label upserts, and checkpoint/run-ledger metadata.
 
 ## Canonical Decisions Encoded
 
@@ -17,7 +17,7 @@ Current scope is schema + control-plane metadata only. No long-running historica
 - Primary model metric v1: log loss
 - Reliability defaults: bounded retry/backoff/jitter/timeouts/request budget + checkpoint resume
 
-## Commands (safe in scaffold phase)
+## Commands
 
 From repo root:
 
@@ -28,12 +28,15 @@ python scripts/history_ingest.py incremental --date 2026-03-09
 python scripts/history_ingest.py dq --partition season=2024
 ```
 
-### Expected behavior now
+### Expected behavior
 
 - `init-db` creates/updates schema and run ledger row in `ingestion_runs`.
-- `backfill` writes a **stubbed** run + checkpoint marker only (no statsapi historical pull).
-- `incremental` writes a **stubbed** run + checkpoint marker only (no live fetch).
+- `backfill` performs bounded `statsapi.schedule` pulls by season partition and upserts:
+  - `games` rows for final/relevant MLB games
+  - `labels` rows for final games (`did_home_win`, `run_differential`, `total_runs`)
+- `incremental` performs bounded one-day `statsapi.schedule` ingest with the same game/label upserts.
 - `dq` writes a placeholder DQ result row to prove run plumbing.
+- Historical odds ingest remains disabled; `odds_snapshot` is not written by backfill/incremental.
 
 ## Verification Checklist
 
@@ -48,24 +51,15 @@ python scripts/history_ingest.py dq --partition season=2024
    - `dq_results`
    - `odds_snapshot` (forward-only note)
 2. `ingestion_runs` contains rows for each command invocation.
-3. `ingestion_checkpoints` has entries for backfill/incremental partitions.
-4. Re-running backfill/incremental updates checkpoint attempt count (idempotent key behavior).
+3. `ingestion_checkpoints` has entries for backfill/incremental partitions with periodic progress updates and final `success`/`failed`.
+4. Re-running backfill/incremental remains idempotent (`games`/`labels` upsert, no duplicate primary keys).
+5. `ingestion_runs.request_count` increments with each bounded statsapi request attempt.
 5. Tests pass:
 
 ```bash
-pytest -q tests/test_history_ingest.py
+.venv/bin/python -m unittest discover -s tests -p 'test_history_ingest.py'
 ```
 
-## Explicitly Not Run in This Phase
+## Explicitly Out Of Scope
 
-- No historical season-scale ingestion for 2020-2025
-- No full statsapi crawl/backfill loops
 - No historical odds ingestion
-
-## Approval Gate Before Enabling Real Pulls
-
-Before implementing non-stub backfill/incremental execution, require explicit approval for:
-1. request budget ceilings by run type,
-2. allowed runtime windows,
-3. stop/abort thresholds for degraded API conditions,
-4. DQ fail-open vs fail-closed behavior for each must-have field class.

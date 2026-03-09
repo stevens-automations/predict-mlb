@@ -16,15 +16,15 @@ Branch intent: `staging/preseason-consolidated` is the integration branch; `main
 - SQLite healthcheck utility and operating runbook available.
 
 ### Historical Ingestion Foundation (new)
-- Added scaffold CLI: `scripts/history_ingest.py` with subcommands:
+- Added historical ingestion CLI: `scripts/history_ingest.py` with subcommands:
   - `init-db`
-  - `backfill` (safe stub)
-  - `incremental` (safe stub)
+  - `backfill` (bounded statsapi schedule ingest)
+  - `incremental` (bounded one-day schedule ingest)
   - `dq`
 - Added canonical historical schema SQL at `scripts/sql/history_schema.sql`.
-- Added run/checkpoint ledger skeleton in DB (`ingestion_runs`, `ingestion_checkpoints`).
-- Added idempotent upsert helpers scaffold (`games`, checkpoints).
-- Added quick tests for schema initialization + checkpoint idempotency + game upsert behavior.
+- Added run/checkpoint ledger in DB (`ingestion_runs`, `ingestion_checkpoints`) with periodic/final checkpoint updates.
+- Added idempotent upsert helpers for `games` + `labels` (`did_home_win`, `run_differential`, `total_runs` for final games).
+- Added mocked tests for bounded backfill/incremental ingest behavior and idempotent upserts.
 
 ## Newly Aligned Direction (encoded)
 
@@ -38,13 +38,11 @@ Branch intent: `staging/preseason-consolidated` is the integration branch; `main
 
 ## Known Constraints / Open Gaps
 
-1. `backfill` and `incremental` are intentionally safe stubs (no full historical pull yet).
-2. Historical training dataset is not yet materialized in `data/mlb_history.db`.
-3. Full statsapi fetch loop, contract evaluators, and DQ checks are scaffolded but not fully implemented.
-4. Odds snapshot table exists but should remain forward-only until explicit policy change.
+1. Historical training dataset is not yet materialized in `data/mlb_history.db`.
+2. Contract evaluators and DQ checks remain minimal placeholders.
+3. Odds snapshot table exists but should remain forward-only until explicit policy change.
 
 ## Non-Goals (current phase)
 
-- No long-running historical ingestion/backfill execution during scaffold phase.
 - No historical odds backfill.
 - No rushed promotion to `main` before staging validation and acceptance gates are complete.

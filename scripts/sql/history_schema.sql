@@ -67,6 +67,8 @@ CREATE TABLE IF NOT EXISTS labels (
   did_home_win INTEGER CHECK (did_home_win IN (0, 1)),
   home_score INTEGER,
   away_score INTEGER,
+  run_differential INTEGER,
+  total_runs INTEGER,
   label_source TEXT DEFAULT 'statsapi',
   settled_at TEXT,
   ingested_at TEXT NOT NULL DEFAULT (datetime('now')),
