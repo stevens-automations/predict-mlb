@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import types
 import unittest
 from pathlib import Path
@@ -168,22 +169,22 @@ class TestHistoryIngestCommands(unittest.TestCase):
                 game_count = conn.execute("SELECT COUNT(*) AS c FROM games").fetchone()["c"]
                 label_count = conn.execute("SELECT COUNT(*) AS c FROM labels").fetchone()["c"]
                 run_count = conn.execute("SELECT COUNT(*) AS c FROM ingestion_runs WHERE mode='backfill'").fetchone()["c"]
+                run_rows = conn.execute(
+                    "SELECT note, request_count FROM ingestion_runs WHERE mode='backfill' ORDER BY started_at"
+                ).fetchall()
                 label_row = conn.execute(
                     "SELECT did_home_win, run_differential, total_runs FROM labels WHERE game_id=1001"
                 ).fetchone()
                 checkpoint_row = conn.execute(
                     """
-                    SELECT status, last_game_id, attempts
+                    SELECT status, last_game_id, attempts, cursor_json
                     FROM ingestion_checkpoints
                     WHERE job_name='backfill' AND partition_key='season=2024'
                     """
                 ).fetchone()
-                request_counts = [
-                    row["request_count"]
-                    for row in conn.execute(
-                        "SELECT request_count FROM ingestion_runs WHERE mode='backfill' ORDER BY started_at"
-                    ).fetchall()
-                ]
+                request_counts = [row["request_count"] for row in run_rows]
+                run_notes = [json.loads(row["note"]) for row in run_rows]
+                checkpoint_cursor = json.loads(checkpoint_row["cursor_json"])
 
             self.assertEqual(game_count, 2)
             self.assertEqual(label_count, 1)
@@ -195,6 +196,29 @@ class TestHistoryIngestCommands(unittest.TestCase):
             self.assertEqual(checkpoint_row["last_game_id"], 1002)
             self.assertGreaterEqual(checkpoint_row["attempts"], 2)
             self.assertEqual(request_counts, [1, 1])
+            for run_note in run_notes:
+                self.assertEqual(run_note["schedule_rows_fetched"], 3)
+                self.assertEqual(run_note["relevant_rows_processed"], 2)
+                self.assertEqual(run_note["distinct_games_touched"], 2)
+                self.assertEqual(run_note["games_inserted"] + run_note["games_updated"], 2)
+                self.assertEqual(run_note["labels_inserted"] + run_note["labels_updated"], 1)
+                self.assertEqual(run_note["final_distinct_counts_snapshot"], {"games": 2, "labels": 1})
+            self.assertEqual(run_notes[0]["games_inserted"], 2)
+            self.assertEqual(run_notes[0]["games_updated"], 0)
+            self.assertEqual(run_notes[0]["labels_inserted"], 1)
+            self.assertEqual(run_notes[0]["labels_updated"], 0)
+            self.assertEqual(run_notes[1]["games_inserted"], 0)
+            self.assertEqual(run_notes[1]["games_updated"], 2)
+            self.assertEqual(run_notes[1]["labels_inserted"], 0)
+            self.assertEqual(run_notes[1]["labels_updated"], 1)
+            self.assertEqual(checkpoint_cursor["schedule_rows_fetched"], 3)
+            self.assertEqual(checkpoint_cursor["relevant_rows_processed"], 2)
+            self.assertEqual(checkpoint_cursor["distinct_games_touched"], 2)
+            self.assertEqual(checkpoint_cursor["games_inserted"], 0)
+            self.assertEqual(checkpoint_cursor["games_updated"], 2)
+            self.assertEqual(checkpoint_cursor["labels_inserted"], 0)
+            self.assertEqual(checkpoint_cursor["labels_updated"], 1)
+            self.assertEqual(checkpoint_cursor["final_distinct_counts_snapshot"], {"games": 2, "labels": 1})
 
     def test_incremental_one_day_schedule_ingest(self) -> None:
         with TemporaryDirectory() as td:
@@ -236,18 +260,20 @@ class TestHistoryIngestCommands(unittest.TestCase):
 
             with connect_db(str(db_path)) as conn:
                 run = conn.execute(
-                    "SELECT status, request_count FROM ingestion_runs WHERE mode='incremental' ORDER BY started_at DESC LIMIT 1"
+                    "SELECT status, request_count, note FROM ingestion_runs WHERE mode='incremental' ORDER BY started_at DESC LIMIT 1"
                 ).fetchone()
                 label = conn.execute(
                     "SELECT did_home_win, run_differential, total_runs FROM labels WHERE game_id=2001"
                 ).fetchone()
                 checkpoint = conn.execute(
                     """
-                    SELECT status, partition_key, last_game_id
+                    SELECT status, partition_key, last_game_id, cursor_json
                     FROM ingestion_checkpoints
                     WHERE job_name='incremental' AND partition_key='date=2026-03-09'
                     """
                 ).fetchone()
+                run_note = json.loads(run["note"])
+                checkpoint_cursor = json.loads(checkpoint["cursor_json"])
 
             self.assertEqual(captured_kwargs["start_date"], "2026-03-09")
             self.assertEqual(captured_kwargs["end_date"], "2026-03-09")
@@ -259,6 +285,19 @@ class TestHistoryIngestCommands(unittest.TestCase):
             self.assertEqual(checkpoint["status"], "success")
             self.assertEqual(checkpoint["partition_key"], "date=2026-03-09")
             self.assertEqual(checkpoint["last_game_id"], 2001)
+            self.assertEqual(run_note["schedule_rows_fetched"], 1)
+            self.assertEqual(run_note["relevant_rows_processed"], 1)
+            self.assertEqual(run_note["distinct_games_touched"], 1)
+            self.assertEqual(run_note["games_inserted"], 1)
+            self.assertEqual(run_note["games_updated"], 0)
+            self.assertEqual(run_note["labels_inserted"], 1)
+            self.assertEqual(run_note["labels_updated"], 0)
+            self.assertEqual(run_note["final_distinct_counts_snapshot"], {"games": 1, "labels": 1})
+            self.assertEqual(checkpoint_cursor["schedule_rows_fetched"], 1)
+            self.assertEqual(checkpoint_cursor["distinct_games_touched"], 1)
+            self.assertEqual(checkpoint_cursor["games_inserted"], 1)
+            self.assertEqual(checkpoint_cursor["labels_inserted"], 1)
+            self.assertEqual(checkpoint_cursor["final_distinct_counts_snapshot"], {"games": 1, "labels": 1})
 
     def test_backfill_checkpoint_failed_on_schedule_error(self) -> None:
         with TemporaryDirectory() as td:

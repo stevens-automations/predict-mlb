@@ -76,6 +76,46 @@ class IngestConfig:
     request_policy: RequestPolicy = RequestPolicy()
 
 
+@dataclass(frozen=True)
+class PartitionSnapshot:
+    games: int
+    labels: int
+
+
+@dataclass(frozen=True)
+class PartitionIngestStats:
+    schedule_rows_fetched: int
+    relevant_rows_processed: int
+    distinct_games_touched: int
+    games_inserted: int
+    games_updated: int
+    labels_inserted: int
+    labels_updated: int
+    final_distinct_counts_snapshot: PartitionSnapshot
+
+    @property
+    def games_upserted(self) -> int:
+        return self.relevant_rows_processed
+
+    @property
+    def labels_upserted(self) -> int:
+        return self.labels_inserted + self.labels_updated
+
+    def to_cursor(self) -> dict[str, Any]:
+        return {
+            "schedule_rows_fetched": self.schedule_rows_fetched,
+            "relevant_rows_processed": self.relevant_rows_processed,
+            "distinct_games_touched": self.distinct_games_touched,
+            "games_upserted": self.games_upserted,
+            "games_inserted": self.games_inserted,
+            "games_updated": self.games_updated,
+            "labels_upserted": self.labels_upserted,
+            "labels_inserted": self.labels_inserted,
+            "labels_updated": self.labels_updated,
+            "final_distinct_counts_snapshot": asdict(self.final_distinct_counts_snapshot),
+        }
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -241,6 +281,64 @@ def upsert_label(conn: sqlite3.Connection, row: dict[str, Any]) -> None:
     conn.commit()
 
 
+def _chunked(values: list[int], size: int = 900) -> list[list[int]]:
+    return [values[index : index + size] for index in range(0, len(values), size)]
+
+
+def _existing_game_ids(conn: sqlite3.Connection, table: str, game_ids: set[int]) -> set[int]:
+    if not game_ids:
+        return set()
+    existing: set[int] = set()
+    for chunk in _chunked(sorted(game_ids)):
+        placeholders = ",".join("?" for _ in chunk)
+        rows = conn.execute(f"SELECT game_id FROM {table} WHERE game_id IN ({placeholders})", chunk).fetchall()
+        existing.update(int(row["game_id"]) for row in rows)
+    return existing
+
+
+def partition_snapshot(conn: sqlite3.Connection, partition_key: str) -> PartitionSnapshot:
+    if partition_key.startswith("season="):
+        season = _to_int(partition_key.split("=", 1)[1])
+        if season is None:
+            return PartitionSnapshot(games=0, labels=0)
+        games = conn.execute("SELECT COUNT(*) AS c FROM games WHERE season = ?", (season,)).fetchone()["c"]
+        labels = conn.execute(
+            """
+            SELECT COUNT(*) AS c
+            FROM labels
+            INNER JOIN games ON games.game_id = labels.game_id
+            WHERE games.season = ?
+            """,
+            (season,),
+        ).fetchone()["c"]
+        return PartitionSnapshot(games=games, labels=labels)
+    if partition_key.startswith("date="):
+        game_date = partition_key.split("=", 1)[1]
+        games = conn.execute("SELECT COUNT(*) AS c FROM games WHERE game_date = ?", (game_date,)).fetchone()["c"]
+        labels = conn.execute(
+            """
+            SELECT COUNT(*) AS c
+            FROM labels
+            INNER JOIN games ON games.game_id = labels.game_id
+            WHERE games.game_date = ?
+            """,
+            (game_date,),
+        ).fetchone()["c"]
+        return PartitionSnapshot(games=games, labels=labels)
+    return PartitionSnapshot(games=0, labels=0)
+
+
+def merge_partition_snapshots(snapshots: list[PartitionSnapshot]) -> PartitionSnapshot:
+    return PartitionSnapshot(
+        games=sum(snapshot.games for snapshot in snapshots),
+        labels=sum(snapshot.labels for snapshot in snapshots),
+    )
+
+
+def format_run_observability(stats: dict[str, Any]) -> str:
+    return json.dumps(stats, sort_keys=True)
+
+
 def bounded_retry_sleep(attempt: int, policy: RequestPolicy) -> float:
     base = min(policy.max_backoff_seconds, policy.initial_backoff_seconds * (2 ** max(0, attempt - 1)))
     jitter = random.uniform(0, policy.jitter_seconds)
@@ -377,33 +475,75 @@ def ingest_schedule_partition(
     schedule_rows: list[dict[str, Any]],
     checkpoint_every: int,
     default_season: int | None = None,
-) -> tuple[int, int, int | None]:
-    processed = 0
-    labels = 0
+) -> tuple[PartitionIngestStats, int | None]:
     last_game_id: int | None = None
     filtered_rows = [row for row in schedule_rows if is_relevant_game(row)]
+    game_rows: list[dict[str, Any]] = []
     for entry in filtered_rows:
         game = game_row_from_schedule(entry, default_season=default_season)
-        if game is None:
-            continue
+        if game is not None:
+            game_rows.append(game)
+    distinct_game_ids = {int(game["game_id"]) for game in game_rows}
+    existing_games = _existing_game_ids(conn, "games", distinct_game_ids)
+    existing_labels = _existing_game_ids(conn, "labels", distinct_game_ids)
+    seen_games: set[int] = set()
+    seen_labels: set[int] = set()
+    games_inserted = 0
+    games_updated = 0
+    labels_inserted = 0
+    labels_updated = 0
+    processed = 0
+    for game in game_rows:
+        game_id = int(game["game_id"])
+        if game_id not in seen_games:
+            if game_id in existing_games:
+                games_updated += 1
+            else:
+                games_inserted += 1
+            seen_games.add(game_id)
         upsert_game(conn, game)
         label = label_row_from_game(game)
         if label is not None:
+            if game_id not in seen_labels:
+                if game_id in existing_labels:
+                    labels_updated += 1
+                else:
+                    labels_inserted += 1
+                seen_labels.add(game_id)
             upsert_label(conn, label)
-            labels += 1
         processed += 1
-        last_game_id = int(game["game_id"])
+        last_game_id = game_id
 
         if checkpoint_every > 0 and processed % checkpoint_every == 0:
+            checkpoint_stats = PartitionIngestStats(
+                schedule_rows_fetched=len(schedule_rows),
+                relevant_rows_processed=processed,
+                distinct_games_touched=len(seen_games),
+                games_inserted=games_inserted,
+                games_updated=games_updated,
+                labels_inserted=labels_inserted,
+                labels_updated=labels_updated,
+                final_distinct_counts_snapshot=partition_snapshot(conn, partition_key),
+            )
             upsert_checkpoint(
                 conn,
                 job_name=job_name,
                 partition_key=partition_key,
-                cursor={"processed_games": processed, "labels_upserted": labels},
+                cursor=checkpoint_stats.to_cursor(),
                 status="running",
                 last_game_id=last_game_id,
             )
-    return processed, labels, last_game_id
+    final_stats = PartitionIngestStats(
+        schedule_rows_fetched=len(schedule_rows),
+        relevant_rows_processed=processed,
+        distinct_games_touched=len(seen_games),
+        games_inserted=games_inserted,
+        games_updated=games_updated,
+        labels_inserted=labels_inserted,
+        labels_updated=labels_updated,
+        final_distinct_counts_snapshot=partition_snapshot(conn, partition_key),
+    )
+    return final_stats, last_game_id
 
 
 def cmd_init_db(args: argparse.Namespace) -> None:
@@ -422,8 +562,14 @@ def cmd_backfill(args: argparse.Namespace) -> None:
     with connect_db(config.db_path) as conn:
         ensure_schema(conn)
         run_id = start_run(conn, "backfill", partition_key=partition_key, config=config)
-        total_games = 0
-        total_labels = 0
+        total_schedule_rows_fetched = 0
+        total_relevant_rows_processed = 0
+        total_distinct_games_touched = 0
+        total_games_inserted = 0
+        total_games_updated = 0
+        total_labels_inserted = 0
+        total_labels_updated = 0
+        partition_snapshots: list[PartitionSnapshot] = []
         last_partition_key = partition_key
         try:
             seasons = [args.season] if args.season else list(range(config.season_start, config.season_end + 1))
@@ -435,7 +581,7 @@ def cmd_backfill(args: argparse.Namespace) -> None:
                     season=season,
                     sportId=1,
                 )
-                processed, labels, last_game_id = ingest_schedule_partition(
+                stats, last_game_id = ingest_schedule_partition(
                     conn,
                     job_name="backfill",
                     partition_key=last_partition_key,
@@ -443,28 +589,44 @@ def cmd_backfill(args: argparse.Namespace) -> None:
                     checkpoint_every=config.checkpoint_every,
                     default_season=season,
                 )
-                total_games += processed
-                total_labels += labels
+                total_schedule_rows_fetched += stats.schedule_rows_fetched
+                total_relevant_rows_processed += stats.relevant_rows_processed
+                total_distinct_games_touched += stats.distinct_games_touched
+                total_games_inserted += stats.games_inserted
+                total_games_updated += stats.games_updated
+                total_labels_inserted += stats.labels_inserted
+                total_labels_updated += stats.labels_updated
+                partition_snapshots.append(stats.final_distinct_counts_snapshot)
                 upsert_checkpoint(
                     conn,
                     job_name="backfill",
                     partition_key=last_partition_key,
-                    cursor={"season": season, "processed_games": processed, "labels_upserted": labels},
+                    cursor={"season": season, **stats.to_cursor()},
                     status="success",
                     last_game_id=last_game_id,
                 )
+            run_stats = {
+                "schedule_rows_fetched": total_schedule_rows_fetched,
+                "relevant_rows_processed": total_relevant_rows_processed,
+                "distinct_games_touched": total_distinct_games_touched,
+                "games_upserted": total_relevant_rows_processed,
+                "games_inserted": total_games_inserted,
+                "games_updated": total_games_updated,
+                "labels_upserted": total_labels_inserted + total_labels_updated,
+                "labels_inserted": total_labels_inserted,
+                "labels_updated": total_labels_updated,
+                "final_distinct_counts_snapshot": asdict(merge_partition_snapshots(partition_snapshots)),
+                "odds_historical": "disabled",
+            }
 
             finish_run(
                 conn,
                 run_id,
                 "success",
-                note=f"games_upserted={total_games}, labels_upserted={total_labels}, odds_historical=disabled",
+                note=format_run_observability(run_stats),
                 request_count=budget.used,
             )
-            print(
-                f"Backfill complete for {partition_key}: games_upserted={total_games}, "
-                f"labels_upserted={total_labels}, request_count={budget.used}"
-            )
+            print(f"Backfill complete for {partition_key}: {format_run_observability({**run_stats, 'request_count': budget.used})}")
         except Exception as exc:
             error = str(exc)
             upsert_checkpoint(
@@ -497,7 +659,7 @@ def cmd_incremental(args: argparse.Namespace) -> None:
             )
             parsed_target_date = _parse_iso_date(target_date)
             default_season = parsed_target_date.year if parsed_target_date else None
-            processed, labels, last_game_id = ingest_schedule_partition(
+            stats, last_game_id = ingest_schedule_partition(
                 conn,
                 job_name="incremental",
                 partition_key=partition_key,
@@ -509,20 +671,32 @@ def cmd_incremental(args: argparse.Namespace) -> None:
                 conn,
                 job_name="incremental",
                 partition_key=partition_key,
-                cursor={"date": target_date, "processed_games": processed, "labels_upserted": labels},
+                cursor={"date": target_date, **stats.to_cursor()},
                 status="success",
                 last_game_id=last_game_id,
             )
+            run_stats = {
+                "schedule_rows_fetched": stats.schedule_rows_fetched,
+                "relevant_rows_processed": stats.relevant_rows_processed,
+                "distinct_games_touched": stats.distinct_games_touched,
+                "games_upserted": stats.games_upserted,
+                "games_inserted": stats.games_inserted,
+                "games_updated": stats.games_updated,
+                "labels_upserted": stats.labels_upserted,
+                "labels_inserted": stats.labels_inserted,
+                "labels_updated": stats.labels_updated,
+                "final_distinct_counts_snapshot": asdict(stats.final_distinct_counts_snapshot),
+                "odds_historical": "disabled",
+            }
             finish_run(
                 conn,
                 run_id,
                 "success",
-                note=f"games_upserted={processed}, labels_upserted={labels}, odds_historical=disabled",
+                note=format_run_observability(run_stats),
                 request_count=budget.used,
             )
             print(
-                f"Incremental complete for {partition_key}: games_upserted={processed}, "
-                f"labels_upserted={labels}, request_count={budget.used}"
+                f"Incremental complete for {partition_key}: {format_run_observability({**run_stats, 'request_count': budget.used})}"
             )
         except Exception as exc:
             error = str(exc)
