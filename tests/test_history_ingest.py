@@ -7,7 +7,15 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from scripts.history_ingest import build_parser, connect_db, ensure_schema, upsert_checkpoint, upsert_game
+from scripts.history_ingest import (
+    _team_stats_row_from_boxscore,
+    build_parser,
+    connect_db,
+    ensure_schema,
+    upsert_checkpoint,
+    upsert_game,
+    upsert_game_team_stats,
+)
 
 
 def table_exists(conn, table_name: str) -> bool:
@@ -107,8 +115,170 @@ class TestHistoryIngestSchemaAndUpserts(unittest.TestCase):
                 self.assertEqual(game_row["home_score"], 5)
                 self.assertEqual(game_row["away_score"], 4)
 
+    def test_game_team_stats_upsert_updates_existing_row_without_duplicates(self) -> None:
+        with TemporaryDirectory() as td:
+            db_path = Path(td) / "history.db"
+            with connect_db(str(db_path)) as conn:
+                ensure_schema(conn)
+                upsert_game(conn, {"game_id": 123, "season": 2020, "game_date": "2020-07-24", "status": "Final"})
+                upsert_game_team_stats(
+                    conn,
+                    {
+                        "game_id": 123,
+                        "team_id": 147,
+                        "side": "home",
+                        "runs": 3,
+                        "hits": 8,
+                        "batting_avg": 0.250,
+                        "obp": 0.320,
+                        "slg": 0.410,
+                        "ops": 0.730,
+                        "strikeouts": 9,
+                        "walks": 2,
+                    },
+                )
+                upsert_game_team_stats(
+                    conn,
+                    {
+                        "game_id": 123,
+                        "team_id": 147,
+                        "side": "home",
+                        "runs": 4,
+                        "hits": 9,
+                        "batting_avg": 0.265,
+                        "obp": 0.333,
+                        "slg": 0.455,
+                        "ops": 0.788,
+                        "strikeouts": 8,
+                        "walks": 3,
+                    },
+                )
+                count_row = conn.execute(
+                    "SELECT COUNT(*) AS c FROM game_team_stats WHERE game_id=123 AND team_id=147"
+                ).fetchone()
+                stats_row = conn.execute(
+                    "SELECT runs, hits, batting_avg, obp, slg, ops, strikeouts, walks FROM game_team_stats WHERE game_id=123 AND team_id=147"
+                ).fetchone()
+                self.assertEqual(count_row["c"], 1)
+                self.assertEqual(stats_row["runs"], 4)
+                self.assertEqual(stats_row["hits"], 9)
+                self.assertEqual(stats_row["strikeouts"], 8)
+                self.assertEqual(stats_row["walks"], 3)
+
 
 class TestHistoryIngestCommands(unittest.TestCase):
+    def test_backfill_pitcher_context_2020_maps_fields_and_is_idempotent(self) -> None:
+        with TemporaryDirectory() as td:
+            db_path = Path(td) / "history.db"
+            with connect_db(str(db_path)) as conn:
+                ensure_schema(conn)
+                upsert_game(
+                    conn,
+                    {
+                        "game_id": 3001,
+                        "season": 2020,
+                        "game_date": "2020-08-01",
+                        "status": "Final",
+                        "home_team_id": 147,
+                        "away_team_id": 121,
+                    },
+                )
+
+            parser = build_parser()
+            args = parser.parse_args(["--db", str(db_path), "--checkpoint-every", "1", "backfill-pitcher-context-2020"])
+
+            schedule_rows = [
+                {
+                    "game_id": 3001,
+                    "season": 2020,
+                    "game_date": "2020-08-01",
+                    "home_probable_pitcher": "Home Starter",
+                    "away_probable_pitcher": "Away Starter",
+                }
+            ]
+
+            def fake_lookup_player(name, season=None):
+                if name == "Home Starter":
+                    return [{"id": 501}]
+                if name == "Away Starter":
+                    return [{"id": 502}]
+                return []
+
+            def fake_player_stat_data(player_id, group=None, type=None):
+                if type == "yearByYear":
+                    return {
+                        "stats": [
+                            {
+                                "season": "2020",
+                                "stats": {
+                                    "era": "3.10",
+                                    "whip": "1.08",
+                                    "avg": "0.220",
+                                    "runsScoredPer9": "3.4",
+                                    "strikePercentage": "67.2",
+                                    "winPercentage": ".650",
+                                },
+                            }
+                        ]
+                    }
+                if type == "career":
+                    return {"stats": [{"stats": {"era": "3.55"}}]}
+                return {}
+
+            stub_statsapi = types.SimpleNamespace(
+                schedule=lambda **_kwargs: schedule_rows,
+                lookup_player=fake_lookup_player,
+                player_stat_data=fake_player_stat_data,
+            )
+
+            with patch("scripts.history_ingest.statsapi", stub_statsapi):
+                args.func(args)
+                args.func(args)
+
+            with connect_db(str(db_path)) as conn:
+                rows = conn.execute(
+                    """
+                    SELECT game_id, side, probable_pitcher_id, probable_pitcher_name,
+                           season_era, season_whip, season_avg_allowed, season_runs_per_9,
+                           season_strike_pct, season_win_pct, career_era,
+                           stats_source, stats_as_of_date, season_stats_scope, season_stats_leakage_risk
+                    FROM game_pitcher_context
+                    WHERE game_id=3001
+                    ORDER BY side
+                    """
+                ).fetchall()
+                row_count = conn.execute(
+                    "SELECT COUNT(*) AS c FROM game_pitcher_context WHERE game_id=3001"
+                ).fetchone()["c"]
+                checkpoint = conn.execute(
+                    """
+                    SELECT status, attempts, cursor_json
+                    FROM ingestion_checkpoints
+                    WHERE job_name='pitcher-context-2020' AND partition_key='season=2020'
+                    """
+                ).fetchone()
+
+            self.assertEqual(row_count, 2)
+            self.assertEqual(len(rows), 2)
+            self.assertEqual(rows[0]["game_id"], 3001)
+            self.assertEqual(rows[0]["season_era"], 3.1)
+            self.assertEqual(rows[0]["season_whip"], 1.08)
+            self.assertEqual(rows[0]["season_avg_allowed"], 0.22)
+            self.assertEqual(rows[0]["season_runs_per_9"], 3.4)
+            self.assertEqual(rows[0]["season_strike_pct"], 67.2)
+            self.assertEqual(rows[0]["season_win_pct"], 0.65)
+            self.assertEqual(rows[0]["career_era"], 3.55)
+            self.assertEqual(rows[0]["stats_as_of_date"], "2020-08-01")
+            self.assertEqual(rows[0]["season_stats_scope"], "full_season_year_aggregate")
+            self.assertEqual(rows[0]["season_stats_leakage_risk"], 1)
+            self.assertIn("player_stat_data", rows[0]["stats_source"])
+            self.assertEqual(checkpoint["status"], "success")
+            self.assertGreaterEqual(checkpoint["attempts"], 2)
+            checkpoint_cursor = json.loads(checkpoint["cursor_json"])
+            self.assertEqual(checkpoint_cursor["season"], 2020)
+            self.assertEqual(checkpoint_cursor["games_seen"], 1)
+            self.assertEqual(checkpoint_cursor["rows_upserted"], 2)
+
     def test_backfill_ingests_bounded_schedule_and_labels_idempotently(self) -> None:
         with TemporaryDirectory() as td:
             db_path = Path(td) / "history.db"
