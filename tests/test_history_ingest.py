@@ -514,6 +514,133 @@ class TestHistoryIngestCommands(unittest.TestCase):
             self.assertEqual(checkpoint["status"], "failed")
             self.assertIn("boom", checkpoint["last_error"])
 
+    def test_team_stats_mapping_extracts_required_fields(self) -> None:
+        row = _team_stats_row_from_boxscore(
+            999,
+            "home",
+            {
+                "home": {
+                    "team": {"id": 147},
+                    "teamStats": {
+                        "batting": {
+                            "runs": 5,
+                            "hits": 10,
+                            "avg": ".278",
+                            "obp": ".345",
+                            "slg": ".456",
+                            "ops": ".801",
+                            "strikeOuts": 7,
+                            "baseOnBalls": 4,
+                        },
+                        "fielding": {"errors": 1},
+                    },
+                }
+            },
+        )
+        assert row is not None
+        self.assertEqual(row["game_id"], 999)
+        self.assertEqual(row["team_id"], 147)
+        self.assertEqual(row["runs"], 5)
+        self.assertEqual(row["hits"], 10)
+        self.assertEqual(row["errors"], 1)
+        self.assertAlmostEqual(row["batting_avg"], 0.278)
+        self.assertAlmostEqual(row["obp"], 0.345)
+        self.assertAlmostEqual(row["slg"], 0.456)
+        self.assertAlmostEqual(row["ops"], 0.801)
+        self.assertEqual(row["strikeouts"], 7)
+        self.assertEqual(row["walks"], 4)
+
+    def test_backfill_team_stats_2020_idempotent(self) -> None:
+        with TemporaryDirectory() as td:
+            db_path = Path(td) / "history.db"
+            parser = build_parser()
+            args = parser.parse_args(["--db", str(db_path), "--checkpoint-every", "1", "backfill-team-stats", "--season", "2020"])
+
+            with connect_db(str(db_path)) as conn:
+                ensure_schema(conn)
+                upsert_game(
+                    conn,
+                    {
+                        "game_id": 4001,
+                        "season": 2020,
+                        "game_date": "2020-07-24",
+                        "status": "Final",
+                        "home_team_id": 147,
+                        "away_team_id": 121,
+                    },
+                )
+
+            def fake_boxscore(_game_id: int):
+                return {
+                    "home": {
+                        "team": {"id": 147},
+                        "teamStats": {
+                            "batting": {
+                                "runs": 6,
+                                "hits": 11,
+                                "avg": ".280",
+                                "obp": ".350",
+                                "slg": ".470",
+                                "ops": ".820",
+                                "strikeOuts": 8,
+                                "baseOnBalls": 5,
+                            },
+                            "fielding": {"errors": 0},
+                        },
+                    },
+                    "away": {
+                        "team": {"id": 121},
+                        "teamStats": {
+                            "batting": {
+                                "runs": 3,
+                                "hits": 7,
+                                "avg": ".233",
+                                "obp": ".300",
+                                "slg": ".390",
+                                "ops": ".690",
+                                "strikeOuts": 10,
+                                "baseOnBalls": 2,
+                            },
+                            "fielding": {"errors": 1},
+                        },
+                    },
+                }
+
+            stub_statsapi = types.SimpleNamespace(boxscore_data=fake_boxscore)
+            with patch("scripts.history_ingest.statsapi", stub_statsapi):
+                args.func(args)
+                args.func(args)
+
+            with connect_db(str(db_path)) as conn:
+                row_count = conn.execute("SELECT COUNT(*) AS c FROM game_team_stats WHERE game_id=4001").fetchone()["c"]
+                home_row = conn.execute(
+                    "SELECT runs, hits, batting_avg, obp, slg, ops, strikeouts, walks FROM game_team_stats WHERE game_id=4001 AND side='home'"
+                ).fetchone()
+                away_row = conn.execute(
+                    "SELECT runs, hits, batting_avg, obp, slg, ops, strikeouts, walks FROM game_team_stats WHERE game_id=4001 AND side='away'"
+                ).fetchone()
+                runs = conn.execute(
+                    "SELECT note, request_count FROM ingestion_runs WHERE mode='backfill' AND partition_key='team-stats-season=2020' ORDER BY started_at"
+                ).fetchall()
+                checkpoint = conn.execute(
+                    "SELECT status, attempts, cursor_json FROM ingestion_checkpoints WHERE job_name='team-stats-backfill' AND partition_key='team-stats-season=2020'"
+                ).fetchone()
+
+            self.assertEqual(row_count, 2)
+            self.assertEqual(home_row["runs"], 6)
+            self.assertEqual(away_row["runs"], 3)
+            self.assertEqual(len(runs), 2)
+            self.assertEqual(runs[0]["request_count"], 1)
+            self.assertEqual(runs[1]["request_count"], 1)
+            first_note = json.loads(runs[0]["note"])
+            second_note = json.loads(runs[1]["note"])
+            self.assertEqual(first_note["rows_inserted"], 2)
+            self.assertEqual(first_note["rows_updated"], 0)
+            self.assertEqual(second_note["rows_inserted"], 0)
+            self.assertEqual(second_note["rows_updated"], 2)
+            self.assertEqual(checkpoint["status"], "success")
+            self.assertGreaterEqual(checkpoint["attempts"], 2)
+
 
 if __name__ == "__main__":
     unittest.main()
