@@ -32,6 +32,12 @@ Branch intent: `staging/preseason-consolidated` is the integration branch; `main
 - 2021 validator sanity-range blocker was reduced to two legitimate tiny-sample `game_pitcher_context` rows (4 field hits total), and validator pitcher ceilings now allow those edge cases while still flagging clearly broken decimal-innings-style outliers.
 - `feature_rows(feature_version='v1')` can now be materialized for 2020 from existing support tables with one canonical row per `(game_id, feature_version)`, stable `as_of_ts`, stale-snapshot cleanup, and explicit degraded/null behavior.
 
+### Training Readiness / Optimization (new)
+- Canonical training configs now live under `configs/training/` for baseline, tuned candidate, experiment suite, and promotion gates.
+- Readiness polling script added at `scripts/training/run_when_ready.py` to block training until required seasons are trainable.
+- Walk-forward metrics now include calibration diagnostics (`expected_calibration_error`, `max_calibration_gap`) in addition to log loss, Brier, and accuracy.
+- Canonical optimization roadmap and promotion template now live in `docs/runbooks/model-optimization-plan.md`.
+
 ## Newly Aligned Direction (encoded)
 
 - Canonical historical store is SQLite at `data/mlb_history.db`.
@@ -44,9 +50,9 @@ Branch intent: `staging/preseason-consolidated` is the integration branch; `main
 
 ## Known Constraints / Open Gaps
 
-1. Multi-season historical training datasets are not yet materialized from `feature_rows + labels`.
-2. `feature_rows(v1)` currently covers only the 2020 starter subset and core baseline features; multi-season training extraction is not finished.
-3. Contract evaluators and DQ checks remain minimal placeholders beyond current 2020 validation coverage.
+1. 2022-2025 ingestion/materialization is still finishing in the background, so the baseline training run has not been executed yet.
+2. `feature_rows(v1)` remains the only approved immediate training contract; uplift tracks are intentionally gated for later.
+3. Contract evaluators and DQ checks remain minimal placeholders beyond current validation coverage.
 4. Odds snapshot table exists but should remain forward-only until explicit policy change.
 
 ## Non-Goals (current phase)

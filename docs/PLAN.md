@@ -44,16 +44,18 @@ Implement strict input contracts with explicit must-have vs optional fields.
 
 ---
 
-## Priority 4 — DQ Framework + Experiment Loop
+## Priority 4 — Baseline Experiment Loop + DQ Expansion
 
 - Expand `dq` from placeholder to full checks (completeness, null thresholds, duplicate guards, freshness).
-- Materialize training datasets from `feature_rows` + `labels`.
-- Start experiment loop with **log loss** as primary metric.
+- Finish 2022-2025 `feature_rows(v1)` materialization and confirm readiness via `scripts/training/run_when_ready.py`.
+- Run `configs/training/baseline_lgbm.json` and register the first incumbent metrics.
+- Run `configs/training/tuned_candidate.json` only after the baseline artifacts are in place.
+- Use `configs/training/promotion_gates.json` for every promotion review with **log loss** as primary metric.
 
 ### Acceptance criteria
 - DQ report artifacts generated per run.
 - Reproducible baseline + challenger experiments completed.
-- Model comparison includes reliability feasibility notes.
+- Model comparison includes calibration and reliability feasibility notes.
 
 ---
 

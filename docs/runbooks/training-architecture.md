@@ -35,8 +35,10 @@ Primary design choices:
 Config templates live under `configs/training/`:
 
 - `baseline_lgbm.json`
-- `stronger_candidate.json`
+- `tuned_candidate.json`
+- `ensemble_candidate_placeholder.json`
 - `experiment_suite.json`
+- `promotion_gates.json`
 
 The default config intentionally points at `data/mlb_history.db` but does not run automatically.
 
@@ -65,6 +67,12 @@ Print the resolved config without training:
 
 If ingestion is incomplete, the loader raises a clear error when no eligible `feature_rows` are found for the configured filters.
 
+To poll the historical DB until the requested seasons are fully trainable:
+
+```bash
+.venv/bin/python scripts/training/run_when_ready.py --action check
+```
+
 ## First Baseline Run
 
 Once historical ingestion and `feature_rows(feature_version='v1')` are ready for the desired seasons:
@@ -77,6 +85,12 @@ To run a small experiment suite:
 
 ```bash
 .venv/bin/python scripts/training/experiment_runner.py --config configs/training/experiment_suite.json
+```
+
+To block until ingestion completes and then launch the baseline automatically:
+
+```bash
+.venv/bin/python scripts/training/run_when_ready.py --action baseline --max-wait-seconds 3600 --poll-seconds 300
 ```
 
 ## Notebook-Friendly Usage
@@ -97,5 +111,6 @@ dataset.dataframe.head()
 - The trainer imports `lightgbm` lazily so test modules can run even if the local machine is missing `libomp`.
 - Walk-forward splitting requires rows sorted by `game_date`; the loader enforces date ordering.
 - Feature inference only trains on numeric payload columns and excludes identifiers, labels, and date fields.
+- Experiment suites can carry disabled placeholders; the runner skips them instead of failing.
+- Readiness polling verifies each requested season has labeled games with matching eligible `feature_rows`.
 - This scaffold does not automatically trigger any expensive multi-season run.
-

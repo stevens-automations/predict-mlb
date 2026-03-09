@@ -35,6 +35,17 @@ def run_experiments(path: str | Path) -> dict[str, Any]:
     loaded = load_experiment_config(path)
     results = []
     for experiment in loaded["experiments"]:
+        execution = experiment.get("execution", {})
+        if not execution.get("enabled", True):
+            results.append(
+                {
+                    "status": "skipped",
+                    "experiment_name": experiment["experiment"]["name"],
+                    "model_name": experiment["model"]["name"],
+                    "reason": execution.get("reason", "disabled"),
+                }
+            )
+            continue
         trainer = experiment["model"].get("trainer", "lgbm")
         if trainer != "lgbm":
             raise ValueError(f"Unsupported trainer: {trainer}")
@@ -56,4 +67,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

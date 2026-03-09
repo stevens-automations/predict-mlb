@@ -17,6 +17,8 @@ This docs set is optimized for **current operations**, **readability**, and **fu
 - `docs/sqlite-cutover.md` — SQLite cutover summary
 - `docs/sqlite-operating-runbook.md` — SQLite runtime operations
 - `docs/runbooks/historical-ingestion-runbook.md` — scaffold-phase historical ingestion runbook
+- `docs/runbooks/training-architecture.md` — current training scaffold and execution entrypoints
+- `docs/runbooks/model-optimization-plan.md` — canonical training roadmap, promotion gates, and first-run commands
 
 ## Research / Strategy
 
@@ -33,6 +35,7 @@ This docs set is optimized for **current operations**, **readability**, and **fu
 ## Documentation Rules (for future changes)
 
 - Keep **one canonical doc per concern** (status, plan, runbook, schema).
+- Put model-training roadmap, gates, and operator commands in `docs/runbooks/model-optimization-plan.md`.
 - Avoid adding date-stamped progress docs in root `docs/`.
 - Put temporary milestone reports in `docs/archive/<YYYY-MM>/`.
 - Update `STATUS.md` + `PLAN.md` whenever major implementation changes land.

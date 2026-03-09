@@ -4,46 +4,38 @@
   },
   "data": {
     "db_path": "data/mlb_history.db",
+    "seasons": [2020, 2021, 2022, 2023, 2024, 2025],
     "feature_version": "v1",
-    "seasons": [
-      2020,
-      2021,
-      2022
-    ],
-    "contract_statuses": [
-      "valid",
-      "degraded"
-    ]
-  },
-  "evaluation": {
-    "walk_forward": {
-      "min_train_samples": 750,
-      "test_size": 250,
-      "step_size": 250,
-      "gap": 0,
-      "max_splits": 6
-    }
+    "contract_statuses": ["valid", "degraded"]
   },
   "model": {
-    "trainer": "lgbm",
     "name": "lgbm_baseline",
+    "trainer": "lgbm",
     "params": {
       "objective": "binary",
       "metric": "binary_logloss",
-      "learning_rate": 0.05,
+      "learning_rate": 0.03,
       "num_leaves": 31,
+      "min_data_in_leaf": 60,
       "feature_fraction": 0.9,
       "bagging_fraction": 0.9,
       "bagging_freq": 1,
-      "min_data_in_leaf": 40,
-      "lambda_l1": 0.0,
-      "lambda_l2": 0.0,
-      "verbose": -1,
-      "num_boost_round": 300
+      "lambda_l2": 1.0,
+      "verbosity": -1,
+      "seed": 20260309,
+      "num_boost_round": 350
+    }
+  },
+  "evaluation": {
+    "walk_forward": {
+      "min_train_samples": 1500,
+      "test_size": 300,
+      "step_size": 300,
+      "gap": 0,
+      "max_splits": 8
     }
   },
   "registry": {
     "root_dir": "artifacts/model_registry"
   }
 }
-

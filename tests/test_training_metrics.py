@@ -2,7 +2,15 @@ import unittest
 
 import numpy as np
 
-from train.metrics import accuracy, brier_score, calibration_bins, classification_metrics, log_loss
+from train.metrics import (
+    accuracy,
+    brier_score,
+    calibration_bins,
+    classification_metrics,
+    expected_calibration_error,
+    log_loss,
+    max_calibration_gap,
+)
 
 
 class TestTrainingMetrics(unittest.TestCase):
@@ -27,6 +35,9 @@ class TestTrainingMetrics(unittest.TestCase):
         summary = classification_metrics(y_true, probabilities, n_bins=4)
         self.assertIn("calibration_bins", summary)
         self.assertEqual(len(summary["calibration_bins"]), 4)
+        self.assertAlmostEqual(expected_calibration_error(y_true, probabilities, n_bins=4), 0.175)
+        self.assertAlmostEqual(max_calibration_gap(y_true, probabilities, n_bins=4), 0.3)
+        self.assertIn("prediction_summary", summary)
 
 
 if __name__ == "__main__":
