@@ -75,7 +75,43 @@ Interpretation:
 
 ```bash
 .venv/bin/python -m unittest discover -s tests -p 'test_history_ingest.py'
+.venv/bin/python -m unittest discover -s tests -p 'test_validate_phase2_2020.py'
 ```
+
+## Phase 2 QA Verification (2020-only)
+
+Use the validation script to score Phase 2 readiness for the 2020 partition:
+
+```bash
+.venv/bin/python scripts/validate_phase2_2020.py \
+  --db data/mlb_history.db \
+  --season 2020 \
+  --output docs/reports/phase2-validation-2020.md \
+  --rerun-cmd ".venv/bin/python scripts/history_ingest.py --db data/mlb_history.db backfill --season 2020"
+```
+
+Interpretation guide:
+
+- **Row coverage vs 2020 games**
+  - PASS: exactly 2 rows/game in both `game_team_stats` and `game_pitcher_context`.
+  - FAIL: backfill is incomplete for one or both tables.
+- **Missingness per key feature field**
+  - PASS/WARN only when rows exist and required columns are present.
+  - FAIL when there are zero rows or required feature columns are absent from schema/data.
+- **Idempotency checks after rerun**
+  - PASS: no duplicate PK groups and table digests unchanged before/after rerun.
+  - FAIL: duplicate keys, post-rerun content drift, or rerun command failure.
+- **Sanity ranges for major numeric fields**
+  - PASS: no out-of-range values on non-null numeric fields.
+  - FAIL: rows missing entirely, schema columns missing, or range violations.
+- **Checkpoint/run observability consistency**
+  - PASS: latest `ingestion_runs.note` counters for `season=2020` align with checkpoint `cursor_json`.
+  - FAIL: missing run/checkpoint rows or counter mismatches.
+
+Go/No-Go rule for moving to 2021:
+
+- **GO** only if all five checks are PASS.
+- **NO-GO** if any check is FAIL; resolve blockers and rerun validator.
 
 ## Explicitly Out Of Scope
 
