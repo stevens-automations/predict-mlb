@@ -13,6 +13,7 @@ import time
 import json
 import os
 import io
+from reliability_utils import calculate_win_percentages
 
 IDS = [
     "id_to_team",
@@ -476,13 +477,7 @@ class LeagueStats:
             return None
         h_wins, h_loses, *_ = self.get_team_standings(home, home_standings)
         a_wins, a_loses, *_ = self.get_team_standings(away, away_standings)
-        home_pct = (
-            round(h_wins / (h_loses + h_wins), 3) if (h_loses + h_wins) > 0 else 0.000
-        )
-        away_pct = (
-            round(h_wins / (a_loses + a_wins), 3) if (a_loses + a_wins) > 0 else 0.000
-        )
-        return home_pct, away_pct
+        return calculate_win_percentages(h_wins, h_loses, a_wins, a_loses)
 
     def get_team_leaders(self, gamePk: str) -> Dict:
         """
