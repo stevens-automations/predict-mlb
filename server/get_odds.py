@@ -6,71 +6,113 @@ import calendar
 import pytz  # type: ignore
 import json
 import os
+import time
 from time_utils import parse_iso_z_to_eastern
 from simulation import simulation_enabled, get_simulated_games
 
 # minimum time between requests
-REQUEST_COOLDOWN = 900 # 0.25 hour
+REQUEST_COOLDOWN = 900  # 0.25 hour
+DEFAULT_ODDS_REQUEST_TIMEOUT_SEC = 10.0
+DEFAULT_ODDS_REQUEST_RETRIES = 3
+DEFAULT_ODDS_REQUEST_BACKOFF_SEC = 1.5
+DEFAULT_ODDS_CIRCUIT_FAILURE_THRESHOLD = 3
+DEFAULT_ODDS_CIRCUIT_COOLDOWN_SEC = 600.0
 
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+_odds_consecutive_failures = 0
+_odds_circuit_open_until = 0.0
+
+
+def _read_cached_odds(data_file: str) -> Optional[Tuple[Optional[Dict], Optional[datetime]]]:
+    if not os.path.exists(data_file):
+        return None
+    modified_time = os.path.getmtime(data_file)
+    with open(data_file, "r", encoding="utf-8") as file:
+        data = json.load(file)
+    return data, datetime.fromtimestamp(modified_time)
+
+
+def _odds_circuit_open() -> bool:
+    return time.time() < _odds_circuit_open_until
+
+
+def _mark_odds_success() -> None:
+    global _odds_consecutive_failures, _odds_circuit_open_until
+    _odds_consecutive_failures = 0
+    _odds_circuit_open_until = 0.0
+
+
+def _mark_odds_failure() -> None:
+    global _odds_consecutive_failures, _odds_circuit_open_until
+    _odds_consecutive_failures += 1
+    failure_threshold = max(
+        int(os.getenv("ODDS_CIRCUIT_FAILURE_THRESHOLD", str(DEFAULT_ODDS_CIRCUIT_FAILURE_THRESHOLD))),
+        1,
+    )
+    if _odds_consecutive_failures < failure_threshold:
+        return
+    cooldown = max(float(os.getenv("ODDS_CIRCUIT_COOLDOWN_SEC", str(DEFAULT_ODDS_CIRCUIT_COOLDOWN_SEC))), 1.0)
+    _odds_circuit_open_until = time.time() + cooldown
+    print(f"[odds-circuit] open for {cooldown:.0f}s after {_odds_consecutive_failures} consecutive failure(s)")
 
 
 def make_request() -> Optional[Tuple[Optional[Dict], Optional[datetime]]]:
-    # load environment variables from .env
     env_file_path = os.path.join(parent_dir, ".env")
     load_dotenv(env_file_path)
-    # access the API key
+
     apikey = os.getenv("ODDS_API_KEY")
-    # API endpoint
     url = "https://api.the-odds-api.com/v4/sports/baseball_mlb/odds"
-    # query parameters
     params = {
         "apiKey": apikey,
         "regions": "us",
         "markets": "h2h",
         "oddsFormat": "american",
     }
-    data: Dict = None
-    request_time: datetime = None
+
     data_file = os.path.join(parent_dir, "data/todays_odds.json")
-    if os.path.exists(data_file):
-        modified_time = os.path.getmtime(data_file)
-        current_time = datetime.now().timestamp()
-        time_difference = current_time - modified_time
-        # read file data without making new request
-        if time_difference < REQUEST_COOLDOWN:
-            with open(data_file, "r") as file:
-                data = json.load(file)
-            request_time = datetime.fromtimestamp(modified_time)
-        else:
-            # makes API request
-            response = requests.get(url, params)
-            # check if response is successful
-            if response.status_code == 200:
-                # parse JSON response
-                data = response.json()
-                # save data to file
-                with open(data_file, "w") as file:
-                    json.dump(data, file)
-                request_time = datetime.now()
-            else:
-                print("Error occureed. Status code: ", response.status_code)
-    else:
-        # makes API request
-        response = requests.get(url, params)
-        # check if response is successful
-        if response.status_code == 200:
-            # parse JSON response
-            data = response.json()
-            # save data to file
-            with open(data_file, "w") as file:
-                json.dump(data, file)
-            request_time = datetime.now()
-        else:
-            print("Error occureed. Status code: ", response.status_code)
-    if data is None or request_time is None:
+    cached = _read_cached_odds(data_file)
+    if cached:
+        data, cached_time = cached
+        if (datetime.now().timestamp() - cached_time.timestamp()) < REQUEST_COOLDOWN:
+            return data, cached_time
+
+    if _odds_circuit_open():
+        if cached:
+            print("[odds-circuit] open, using stale cached odds data")
+            return cached
+        print("[odds-circuit] open, no cached odds available")
         return None
-    return data, request_time
+
+    timeout_sec = max(float(os.getenv("ODDS_REQUEST_TIMEOUT_SEC", str(DEFAULT_ODDS_REQUEST_TIMEOUT_SEC))), 1.0)
+    max_attempts = max(int(os.getenv("ODDS_REQUEST_RETRIES", str(DEFAULT_ODDS_REQUEST_RETRIES))), 1)
+    backoff = max(float(os.getenv("ODDS_REQUEST_BACKOFF_SEC", str(DEFAULT_ODDS_REQUEST_BACKOFF_SEC))), 0.0)
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            response = requests.get(url, params=params, timeout=timeout_sec)
+            if response.status_code == 200:
+                data = response.json()
+                with open(data_file, "w", encoding="utf-8") as file:
+                    json.dump(data, file)
+                _mark_odds_success()
+                return data, datetime.now()
+
+            status = int(response.status_code)
+            print(f"Odds API error status={status} attempt={attempt}/{max_attempts}")
+            retryable = status == 429 or status >= 500
+            if not retryable:
+                break
+        except requests.RequestException as exc:
+            print(f"Odds API request exception attempt={attempt}/{max_attempts}: {exc}")
+
+        if attempt < max_attempts:
+            time.sleep(backoff * (2 ** (attempt - 1)))
+
+    _mark_odds_failure()
+    if cached:
+        print("[odds] API unavailable, falling back to stale cached odds")
+        return cached
+    return None
 
 
 def get_favorite(game: Dict) -> Optional[str]:

@@ -169,6 +169,79 @@ class TestPredictGuardrails(unittest.TestCase):
         self.assertIn("enrichment_mismatch_rate_high", warnings)
         self.assertIn("enrichment_low_confidence_rate_high", warnings)
 
+    def test_threshold_warning_suppressed_for_small_sample(self):
+        predict = self._load_predict_module()
+        summary = {
+            "total_game_lines": 2,
+            "confidence_tier_distribution": {"H": 0, "M": 0, "L": 2},
+            "mismatch_count": 2,
+            "mismatch_rate": 1.0,
+        }
+        with patch.dict("os.environ", {
+            "ENRICHMENT_MISMATCH_RATE_WARN": "0.60",
+            "ENRICHMENT_LOW_CONFIDENCE_RATE_WARN": "0.70",
+            "ENRICHMENT_MIN_SAMPLE_WARN": "5",
+            "ENRICHMENT_MIN_MISMATCH_COUNT_WARN": "3",
+            "ENRICHMENT_MIN_LOW_CONFIDENCE_COUNT_WARN": "3",
+        }, clear=False):
+            warnings = predict._emit_enrichment_threshold_warnings(summary, run_id="r2", stage="run_summary")
+        self.assertEqual(warnings, [])
+
+
+class TestTweetReliability(unittest.TestCase):
+    def _load_predict_module(self):
+        return TestScheduleDeduping()._load_predict_module()
+
+    def test_send_tweet_retries_then_succeeds(self):
+        predict = self._load_predict_module()
+        with patch.object(predict, "posting_disabled", return_value=False), \
+             patch.object(predict, "mark_as_tweeted") as mark_mock, \
+             patch.dict("os.environ", {"TWEET_RETRY_ATTEMPTS": "2", "TWEET_RETRY_BACKOFF_SEC": "0"}, clear=False):
+
+            class _PopenFailThenOk:
+                calls = 0
+
+                def __init__(self, *args, **kwargs):
+                    type(self).calls += 1
+                    self.returncode = 1 if type(self).calls == 1 else 0
+
+                def communicate(self, timeout=None):
+                    if self.returncode == 0:
+                        return ("ok", "")
+                    return ("", "rate limit")
+
+            with patch.object(predict.subprocess, "Popen", _PopenFailThenOk), \
+                 patch.object(predict.time, "sleep", return_value=None):
+                ok = predict.send_tweet("hello")
+
+        self.assertTrue(ok)
+        mark_mock.assert_called_once_with("hello")
+
+    def test_send_tweet_opens_circuit_after_failures(self):
+        predict = self._load_predict_module()
+        predict._tweet_consecutive_failures = 0
+        predict._tweet_circuit_open_until = 0.0
+
+        with patch.object(predict, "posting_disabled", return_value=False), \
+             patch.dict("os.environ", {
+                 "TWEET_RETRY_ATTEMPTS": "1",
+                 "TWEET_CIRCUIT_FAILURE_THRESHOLD": "1",
+                 "TWEET_RETRY_BACKOFF_SEC": "0",
+             }, clear=False):
+
+            class _PopenAlwaysFail:
+                def __init__(self, *args, **kwargs):
+                    self.returncode = 1
+
+                def communicate(self, timeout=None):
+                    return ("", "boom")
+
+            with patch.object(predict.subprocess, "Popen", _PopenAlwaysFail):
+                ok = predict.send_tweet("hello")
+
+        self.assertFalse(ok)
+        self.assertTrue(predict._tweet_circuit_open_until > 0)
+
 
 if __name__ == "__main__":
     unittest.main()

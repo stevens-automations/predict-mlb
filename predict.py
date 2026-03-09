@@ -29,6 +29,7 @@ from simulation import (
     simulation_enabled,
     posting_disabled,
 )
+from server.explanation_guardrails import validate_replay_explanation_output
 import pandas as pd  # type: ignore
 import subprocess
 import threading
@@ -60,6 +61,18 @@ current_run_id: Optional[str] = None
 MAX_TWEET_LINE_LENGTH = 180
 DEFAULT_ENRICHMENT_MISMATCH_RATE_WARN = 0.60
 DEFAULT_ENRICHMENT_LOW_CONF_RATE_WARN = 0.70
+DEFAULT_ENRICHMENT_MIN_SAMPLE_WARN = 5
+DEFAULT_ENRICHMENT_MIN_MISMATCH_COUNT_WARN = 3
+DEFAULT_ENRICHMENT_MIN_LOW_CONF_COUNT_WARN = 3
+DEFAULT_TWEET_RETRY_ATTEMPTS = 3
+DEFAULT_TWEET_RETRY_BACKOFF_SEC = 2.0
+DEFAULT_TWEET_RATE_LIMIT_BACKOFF_SEC = 60.0
+DEFAULT_TWEET_CIRCUIT_FAILURE_THRESHOLD = 3
+DEFAULT_TWEET_CIRCUIT_COOLDOWN_SEC = 300.0
+DEFAULT_TWEET_SUBPROCESS_TIMEOUT_SEC = 45.0
+
+_tweet_consecutive_failures = 0
+_tweet_circuit_open_until = 0.0
 
 
 COLUMN_ORDER = [
@@ -262,6 +275,17 @@ def _parse_float_env(name: str, default: float) -> float:
     return default
 
 
+def _parse_int_env(name: str, default: int, minimum: int = 0) -> int:
+    raw = os.getenv(name, "")
+    try:
+        value = int(str(raw).strip())
+        if value >= minimum:
+            return value
+    except (TypeError, ValueError):
+        pass
+    return default
+
+
 def _required_line_fields_present(info: Dict) -> tuple[bool, List[str]]:
     required_fields = ["home", "away", "predicted_winner", "game_id", "date"]
     missing = [field for field in required_fields if info.get(field) in (None, "")]
@@ -288,19 +312,50 @@ def _guardrail_warn(reason: str, stage: str, run_id: Optional[str], details: Opt
     print(f"[guardrail-warning] {json.dumps(payload, sort_keys=True)}")
 
 
+def _validate_replay_explanation(sim_prediction: Dict, run_id: Optional[str], game_id: object) -> Optional[Dict[str, object]]:
+    raw = sim_prediction.get("llm_explanation")
+    if raw is None:
+        return None
+
+    allowed_sources = sim_prediction.get("allowed_explanation_sources") or [
+        "odds_snapshot",
+        "model_features",
+        "schedule_context",
+    ]
+    result = validate_replay_explanation_output(raw, allowed_sources=allowed_sources)
+    if not result.valid:
+        _guardrail_warn(
+            reason="invalid_replay_explanation",
+            stage="generate_daily_predictions",
+            run_id=run_id,
+            details={
+                "game_id": game_id,
+                "errors": result.errors,
+                "dropped_evidence_items": result.dropped_evidence_items,
+            },
+        )
+        return None
+    return result.explanation
+
+
 def _emit_enrichment_threshold_warnings(summary: Dict[str, object], run_id: Optional[str], stage: str) -> List[str]:
     mismatch_warn = _parse_float_env("ENRICHMENT_MISMATCH_RATE_WARN", DEFAULT_ENRICHMENT_MISMATCH_RATE_WARN)
     low_conf_warn = _parse_float_env("ENRICHMENT_LOW_CONFIDENCE_RATE_WARN", DEFAULT_ENRICHMENT_LOW_CONF_RATE_WARN)
+    min_sample = _parse_int_env("ENRICHMENT_MIN_SAMPLE_WARN", DEFAULT_ENRICHMENT_MIN_SAMPLE_WARN, minimum=1)
+    min_mismatch_count = _parse_int_env("ENRICHMENT_MIN_MISMATCH_COUNT_WARN", DEFAULT_ENRICHMENT_MIN_MISMATCH_COUNT_WARN, minimum=1)
+    min_low_conf_count = _parse_int_env("ENRICHMENT_MIN_LOW_CONFIDENCE_COUNT_WARN", DEFAULT_ENRICHMENT_MIN_LOW_CONF_COUNT_WARN, minimum=1)
     warnings: List[str] = []
 
     mismatch_rate = float(summary.get("mismatch_rate", 0.0) or 0.0)
     low_count = int((summary.get("confidence_tier_distribution") or {}).get("L", 0))
+    mismatch_count = int(summary.get("mismatch_count", 0) or 0)
     total = int(summary.get("total_game_lines", 0) or 0)
     low_conf_rate = (low_count / total) if total else 0.0
 
-    if mismatch_rate >= mismatch_warn:
+    enough_sample = total >= min_sample
+    if enough_sample and mismatch_count >= min_mismatch_count and mismatch_rate >= mismatch_warn:
         warnings.append("enrichment_mismatch_rate_high")
-    if low_conf_rate >= low_conf_warn:
+    if enough_sample and low_count >= min_low_conf_count and low_conf_rate >= low_conf_warn:
         warnings.append("enrichment_low_confidence_rate_high")
 
     for warning in warnings:
@@ -313,6 +368,9 @@ def _emit_enrichment_threshold_warnings(summary: Dict[str, object], run_id: Opti
                 "mismatch_rate_warn": mismatch_warn,
                 "low_confidence_rate_warn": low_conf_warn,
                 "low_confidence_rate": round(low_conf_rate, 4),
+                "min_sample_warn": min_sample,
+                "min_mismatch_count_warn": min_mismatch_count,
+                "min_low_confidence_count_warn": min_low_conf_count,
             },
         )
     return warnings
@@ -446,6 +504,9 @@ def generate_daily_predictions(storage, model: str = selected_model, date=dateti
                     "summary": sim_prediction.get("summary", f"{game.get('away_team')} @ {game.get('home_team')}"),
                     "game_id": gamePk,
                 }
+                validated_explanation = _validate_replay_explanation(sim_prediction, run_id=run_id, game_id=gamePk)
+                if validated_explanation is not None:
+                    info["summary"] = f"{info['summary']} | explanation={json.dumps(validated_explanation, sort_keys=True)}"
                 winner = sim_prediction.get("predicted_winner")
                 prediction = float(sim_prediction.get("prediction_value", 0.5))
             else:
@@ -538,27 +599,80 @@ def mark_as_tweeted(tweet: str) -> None:
     storage.mark_tweeted(lines)
 
 
+def _tweet_circuit_open() -> bool:
+    return time.time() < _tweet_circuit_open_until
+
+
+def _mark_tweet_failure() -> None:
+    global _tweet_consecutive_failures, _tweet_circuit_open_until
+    _tweet_consecutive_failures += 1
+    failure_threshold = max(
+        int(os.getenv("TWEET_CIRCUIT_FAILURE_THRESHOLD", str(DEFAULT_TWEET_CIRCUIT_FAILURE_THRESHOLD))),
+        1,
+    )
+    if _tweet_consecutive_failures < failure_threshold:
+        return
+    cooldown = max(float(os.getenv("TWEET_CIRCUIT_COOLDOWN_SEC", str(DEFAULT_TWEET_CIRCUIT_COOLDOWN_SEC))), 1.0)
+    _tweet_circuit_open_until = time.time() + cooldown
+    print(f"[tweet-circuit] open for {cooldown:.0f}s after {_tweet_consecutive_failures} consecutive failure(s)")
+
+
+def _mark_tweet_success() -> None:
+    global _tweet_consecutive_failures, _tweet_circuit_open_until
+    _tweet_consecutive_failures = 0
+    _tweet_circuit_open_until = 0.0
+
+
 def send_tweet(tweet: str) -> bool:
     if posting_disabled():
         print(f"[dry-run] tweet suppressed: {tweet}")
         mark_as_tweeted(tweet)
         return True
-    try:
-        tweet_script = os.path.join(cwd, "server/tweet.py")
-        process = subprocess.Popen(["python3", tweet_script, tweet], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        process.wait()
-        stdout, stderr = process.communicate()
-        print(stdout.strip())
-        print(stderr.strip())
-        return_code = process.poll()
-        if return_code != 0:
-            print(f"Error calling tweet.py: return code={return_code}")
-            return False
-        mark_as_tweeted(tweet)
-        return True
-    except subprocess.CalledProcessError as e:
-        print(f"{datetime.now(eastern).strftime('%D - %I:%M:%S %p')}... \nError tweeting results{e}\n")
+
+    if _tweet_circuit_open():
+        remaining = max(1, int(_tweet_circuit_open_until - time.time()))
+        print(f"[tweet-circuit] open, skipping send for {remaining}s")
         return False
+
+    max_attempts = max(int(os.getenv("TWEET_RETRY_ATTEMPTS", str(DEFAULT_TWEET_RETRY_ATTEMPTS))), 1)
+    retry_backoff = max(float(os.getenv("TWEET_RETRY_BACKOFF_SEC", str(DEFAULT_TWEET_RETRY_BACKOFF_SEC))), 0.0)
+    rate_limit_backoff = max(float(os.getenv("TWEET_RATE_LIMIT_BACKOFF_SEC", str(DEFAULT_TWEET_RATE_LIMIT_BACKOFF_SEC))), 1.0)
+    timeout_sec = max(float(os.getenv("TWEET_SUBPROCESS_TIMEOUT_SEC", str(DEFAULT_TWEET_SUBPROCESS_TIMEOUT_SEC))), 5.0)
+
+    tweet_script = os.path.join(cwd, "server/tweet.py")
+    for attempt in range(1, max_attempts + 1):
+        try:
+            process = subprocess.Popen(["python3", tweet_script, tweet], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            stdout, stderr = process.communicate(timeout=timeout_sec)
+            if stdout:
+                print(stdout.strip())
+            if stderr:
+                print(stderr.strip())
+            return_code = process.returncode
+            if return_code == 0:
+                mark_as_tweeted(tweet)
+                _mark_tweet_success()
+                return True
+
+            print(f"Error calling tweet.py: return code={return_code} attempt={attempt}/{max_attempts}")
+            lower_err = (stderr or "").lower()
+            if "rate limit" in lower_err or "429" in lower_err:
+                time.sleep(rate_limit_backoff)
+            elif attempt < max_attempts:
+                time.sleep(retry_backoff * (2 ** (attempt - 1)))
+        except subprocess.TimeoutExpired:
+            print(f"Error calling tweet.py: timed out after {timeout_sec}s attempt={attempt}/{max_attempts}")
+            process.kill()
+            process.communicate()
+            if attempt < max_attempts:
+                time.sleep(retry_backoff * (2 ** (attempt - 1)))
+        except Exception as e:
+            print(f"{datetime.now(eastern).strftime('%D - %I:%M:%S %p')}... \nError tweeting results {e}\n")
+            if attempt < max_attempts:
+                time.sleep(retry_backoff * (2 ** (attempt - 1)))
+
+    _mark_tweet_failure()
+    return False
 
 
 def schedule_tweets(tweet_lines: List[str], run_id: Optional[str] = None, observability_lines: Optional[List[str]] = None) -> tuple[int, Dict[str, object]]:

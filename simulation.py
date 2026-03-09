@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+import hashlib
 import json
 import os
 
@@ -16,17 +17,29 @@ class SimulationConfig:
     enabled: bool
     date: Optional[str]
     fixture_path: Optional[str]
+    seed: Optional[int]
 
 
 def _truthy(value: Optional[str]) -> bool:
     return str(value or "").strip().lower() in TRUE_VALUES
 
 
+def _optional_int(value: Optional[str]) -> Optional[int]:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return int(text)
+    except ValueError as exc:
+        raise RuntimeError("PREDICT_SIM_SEED must be an integer when provided") from exc
+
+
 def get_simulation_config() -> SimulationConfig:
     enabled = _truthy(os.getenv("PREDICT_SIM_MODE"))
     date = str(os.getenv("PREDICT_SIM_DATE") or "").strip() or None
     fixture_path = str(os.getenv("PREDICT_SIM_FIXTURE_PATH") or "").strip() or None
-    return SimulationConfig(enabled=enabled, date=date, fixture_path=fixture_path)
+    seed = _optional_int(os.getenv("PREDICT_SIM_SEED"))
+    return SimulationConfig(enabled=enabled, date=date, fixture_path=fixture_path, seed=seed)
 
 
 def simulation_enabled() -> bool:
@@ -62,12 +75,24 @@ def load_sim_fixture() -> Dict[str, Any]:
     return payload
 
 
+def _seeded_game_order_key(game: Dict[str, Any], seed: int) -> str:
+    game_id = str(game.get("sim_game_id") or game.get("game_id") or "")
+    commence_time = str(game.get("commence_time") or "")
+    payload = f"{seed}|{game_id}|{commence_time}"
+    return hashlib.sha1(payload.encode("utf-8")).hexdigest()
+
+
 def get_simulated_games() -> List[Dict[str, Any]]:
     fixture = load_sim_fixture()
     games = fixture.get("games", [])
     if not isinstance(games, list):
         raise RuntimeError("Simulation fixture field 'games' must be a list")
-    return games
+
+    cfg = get_simulation_config()
+    if cfg.seed is None:
+        return games
+
+    return sorted(games, key=lambda game: _seeded_game_order_key(game, cfg.seed))
 
 
 def get_simulated_prediction(game_id: int | str) -> Optional[Dict[str, Any]]:

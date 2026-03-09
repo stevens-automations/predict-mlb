@@ -6,8 +6,9 @@
   - `PREDICT_SIM_MODE`
   - `PREDICT_SIM_DATE`
   - `PREDICT_SIM_FIXTURE_PATH`
+  - `PREDICT_SIM_SEED`
   - `PREDICT_DRY_RUN` / `PREDICT_DISABLE_POST`
-- Added deterministic fixture loader for simulated odds + predictions.
+- Added deterministic fixture loader for simulated odds + predictions, with optional seed-based replay ordering.
 - Updated odds retrieval to short-circuit to fixtures in sim mode (no live Odds API call).
 - Updated prediction generation to bypass live schedule/model prediction path in sim mode and use fixture-backed game/prediction records.
 - Updated runtime validation to skip secret env requirements in sim mode.
