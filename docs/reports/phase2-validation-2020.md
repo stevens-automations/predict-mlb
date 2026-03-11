@@ -1,7 +1,7 @@
 # Phase 2 Validation Report (2020)
 
-- Generated: `2026-03-09T14:27:01`
-- DB: `data/mlb_history.db`
+- Generated: `2026-03-09T19:59:45`
+- DB: `/Users/openclaw/.openclaw/workspace/projects/predict-mlb/data/mlb_history.db`
 - Overall: **PASS**
 
 ## Check Results
@@ -187,10 +187,10 @@
     "game_pitcher_context": 0,
     "game_team_stats": 0
   },
-  "rerun_executed": true,
-  "rerun_exit_code": 0,
+  "rerun_executed": false,
+  "rerun_exit_code": null,
   "rerun_stderr_tail": "",
-  "rerun_stdout_tail": "Feature row materialization complete for feature-rows-season=2020:version=v1: {\"feature_version\": \"v1\", \"games_seen\": 953, \"job\": \"feature-rows-v1-2020\", \"rows_upserted\": 953, \"season\": 2020}\n"
+  "rerun_stdout_tail": ""
 }
 ```
 
@@ -357,6 +357,6 @@
 
 - None
 
-## Recommendation for 2021
+## Recommendation for season 2020
 
 - **GO**

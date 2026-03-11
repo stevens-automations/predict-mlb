@@ -1,41 +1,68 @@
-# Documentation Index (Current)
+# Documentation Index
 
-This docs set is optimized for **current operations**, **readability**, and **future agent handoff**.
+This docs set is centered on five canonical files. Read these first.
 
-## Start Here
+## Canonical Docs
 
-1. `docs/STATUS.md` — current implemented state and known gaps
-2. `docs/PLAN.md` — prioritized remaining work and acceptance gates
-3. `docs/decisions.md` — active open decisions for fast unblock
-4. `docs/day0-launch-reliability-checklist.md` — go-live/rehearsal checks
+1. `docs/STATUS.md` - current state, what is done, what is in progress, and what remains before training
+2. `docs/PLAN.md` - the pre-training gate list for the first integrated materialization and run
+3. `docs/TODO.md` - the short execution queue derived from the plan
+4. `docs/decisions.md` - decisions that are locked vs still open
+5. `docs/README.md` - doc map and cleanup rules
 
-## Operational Guides
+## Current State
 
-- `docs/simulation-mode.md` — deterministic preseason replay mode
-- `docs/detection-tuning-guide.md` — anomaly warning threshold tuning
-- `docs/preseason-replay-explanation-schema.md` — explanation guardrails contract
-- `docs/sqlite-cutover.md` — SQLite cutover summary
-- `docs/sqlite-operating-runbook.md` — SQLite runtime operations
-- `docs/runbooks/historical-ingestion-runbook.md` — scaffold-phase historical ingestion runbook
-- `docs/runbooks/training-architecture.md` — current training scaffold and execution entrypoints
-- `docs/runbooks/model-optimization-plan.md` — canonical training roadmap, promotion gates, and first-run commands
+- The project is past the ingestion-foundation phase.
+- Pitcher appearances are backfilled.
+- Bullpen support is backfilled.
+- Lineup / platoon support is implemented; completed-game coverage is effectively complete and only two postponed 2020 games lack raw lineup snapshot rows.
+- Weather / venue support is largely fixed; the weather contract is simplified and historical support is effectively complete enough for downstream work.
+- `v2_phase1` integrated materialization already exists in code/tests, but it has not yet been materialized in the canonical DB.
+- Retraining is still deferred pending final validation and integrated feature materialization.
 
-## Research / Strategy
+## What Is Done
 
-- `docs/research/historical-mlb-ingestion-architecture.md` — historical ingestion architecture + scaffold status
-- `docs/research/accuracy-improvement-memo.md` — ranked improvement options (no full model overhaul)
-- `docs/research/feature-contract-v1.md` — canonical feature contract for 2020-2025 backfill and daily inference
+- Canonical historical storage and ingestion flow are in place.
+- `feature_rows(v1)` remains the stable baseline contract.
+- Richer support layers now exist for pitcher appearances, bullpen, lineup / platoon, and weather / venue.
+- The weather pipeline is simplified enough that downstream integrated work no longer depends on more contract churn.
+- Season validation reports live under `docs/reports/phase2-validation-*.md`.
 
-## Archive
+## What Is In Progress
 
-- `docs/archive/2026-03/` — incremental checkpoint/progress/history docs retained for traceability.
+- Final validation across the expanded support layers.
+- Canonical `v2_phase1` materialization plus degraded-path review for the first serious richer run.
 
----
+## What Remains Before Training
 
-## Documentation Rules (for future changes)
+- Keep the known residual support gaps explicit and close any remaining validation gaps.
+- Materialize the integrated feature rows.
+- Keep retraining deferred until `docs/PLAN.md` gates are complete.
 
-- Keep **one canonical doc per concern** (status, plan, runbook, schema).
-- Put model-training roadmap, gates, and operator commands in `docs/runbooks/model-optimization-plan.md`.
-- Avoid adding date-stamped progress docs in root `docs/`.
-- Put temporary milestone reports in `docs/archive/<YYYY-MM>/`.
-- Update `STATUS.md` + `PLAN.md` whenever major implementation changes land.
+## Optional / High-Value Later Work
+
+- Secondary run-margin modeling
+- Richer lineup-quality layers beyond first-pass platoon support
+- Further park / weather interaction refinement
+
+## Supporting Docs
+
+- `docs/runbooks/historical-ingestion-runbook.md` - ingestion commands and sequencing
+- `docs/runbooks/training-architecture.md` - training flow and entrypoints
+- `docs/runbooks/model-optimization-plan.md` - baseline and challenger review gates
+- `docs/research/feature-contract-v1.md` - stable `v1` contract reference
+- `docs/research/integrated-feature-contract-v2-phase1-2026-03-10.md` - integrated materialization reference
+- `docs/research/pre-training-validation-readiness-gate-2026-03-10.md` - detailed readiness criteria
+
+## Reports And Archive
+
+- `docs/reports/phase2-validation-2020.md` through `docs/reports/phase2-validation-2025.md`
+- `docs/archive/2026-03/` - superseded checkpoint notes retained for traceability
+- `docs/archive/runtime-logs/` - generated runtime artifacts retained for traceability
+
+## Documentation Rules
+
+- Keep project state in `STATUS`, execution gates in `PLAN`, short queue items in `TODO`, and scope calls in `decisions`.
+- Keep run commands in runbooks and implementation detail in research docs, not in checkpoint notes.
+- Do not create new mini-status docs when an update belongs in one of the canonical files.
+- When a small note is still worth keeping, fold the takeaway into a canonical doc and leave the original in `docs/archive/` or `docs/research/`.

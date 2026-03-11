@@ -29,7 +29,7 @@ Scope:
 Baseline configuration:
 - Trainer: LightGBM binary classifier
 - Primary metric: log loss
-- Walk-forward window: `min_train_samples=1500`, `test_size=300`, `step_size=300`, `max_splits=8`
+- Walk-forward window: `min_train_samples=1500`, `test_size=300`, `step_size=300` across the full eligible history
 - Output metrics: log loss, Brier, accuracy, expected calibration error, max calibration gap, calibration bins
 
 Why this is first:

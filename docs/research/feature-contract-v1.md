@@ -10,7 +10,7 @@ Define the canonical pregame feature contract for predicting `did_home_win` for 
 The current repo state matters:
 
 - Legacy training used a 44-feature home/away row from [`data.py`](/Users/openclaw/.openclaw/workspace/projects/predict-mlb/data.py) and [`mlb-predict.ipynb`](/Users/openclaw/.openclaw/workspace/projects/predict-mlb/mlb-predict.ipynb).
-- Current historical ingestion in [`scripts/history_ingest.py`](/Users/openclaw/.openclaw/workspace/projects/predict-mlb/scripts/history_ingest.py) only materializes `games` and `labels`; `game_team_stats`, `game_pitcher_context`, and `feature_rows` exist in schema but are not yet populated.
+- Historical ingestion in [`scripts/history_ingest.py`](/Users/openclaw/.openclaw/workspace/projects/predict-mlb/scripts/history_ingest.py) now materializes `games`, `labels`, `game_team_stats`, parity-safe `game_pitcher_context`, and `feature_rows(feature_version='v1')`; newer support tables for pitcher appearances and bullpen state are implemented separately for the next feature wave.
 - Existing research in [`docs/research/model-data-feasibility-audit-2026-03-09.md`](/Users/openclaw/.openclaw/workspace/projects/predict-mlb/docs/research/model-data-feasibility-audit-2026-03-09.md) already concluded that legacy parity cannot be trusted unless we enforce as-of snapshots and leakage guardrails.
 
 Canonical output of this contract:

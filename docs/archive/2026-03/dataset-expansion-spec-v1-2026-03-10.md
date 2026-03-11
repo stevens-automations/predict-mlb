@@ -17,6 +17,8 @@ Build a significantly more intelligent MLB pregame prediction dataset by adding 
 - New data/features must be available both:
   - historically for backfill/training
   - at daily inference time for live predictions
+- Train/inference parity is a hard requirement: every approved feature family must include a documented runtime computation/retrieval path so daily predictions can use the same information class and logic as training.
+- The intended operating model is to keep the project DB updated in real time (or near-real time) each day so bullpen state, lineup/platoon context, and later weather/park context can be recomputed at inference time from fresh data.
 - Priority is not blind retraining; priority is **dataset intelligence expansion**
 
 ## Expansion phase order
