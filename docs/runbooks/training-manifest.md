@@ -86,16 +86,21 @@ What those systems have in common:
 
 ## Recommended Modeling Shape
 
-The external research supports a **two-stage system**:
+The current project direction is a **single canonical `pregame_1h` system**.
 
-1. **Base / prior forecast**
-   - built from stable talent and context inputs
-   - useful early in the day and as a prior
-2. **Near-first-pitch updater (~60-75 minutes pregame)**
-   - decision-grade forecast
-   - absorbs confirmed lineup, late weather/roof, bullpen state, and scratch/starter certainty changes
+That means:
+- one training/inference snapshot contract
+- one primary decision-grade forecast built for roughly 1 hour before first pitch
+- no separate morning-model track in the first rebuild unless a later result clearly justifies it
 
-If only one production-grade forecast is prioritized first, it should be the **near-first-pitch snapshot**.
+The model should therefore be built directly around the best information available near first pitch:
+- confirmed/probable starter context
+- lineup/projection fallback context
+- bullpen freshness and leverage-arm availability
+- weather / roof / park context
+- team true-talent and rolling form priors
+
+The goal is not to intentionally narrow the first serious model. The goal is to train on the **strongest realistic pregame_1h feature set** we can support while preserving train/inference parity.
 
 ## Signal Families We Should Treat As Serious Candidates
 
@@ -171,23 +176,19 @@ Lower priority / likely overkill early:
 
 ## External-Research-Informed Architecture Direction
 
-### Morning/base layer
-Use this as the prior / early estimate:
-- team talent baseline
-- expected starter
-- projected lineups if available
-- baseline bullpen quality
-- park
-- coarse weather
+### Canonical `pregame_1h` model
+Use one primary snapshot contract centered on roughly 1 hour before first pitch.
 
-### Near-first-pitch layer
-Use this as the main decision-grade forecast:
-- confirmed lineup
-- confirmed / much firmer starter state
-- bullpen freshness and leverage-arm availability
-- final weather / roof state
-- late scratches / rest changes
-- stronger matchup interactions
+That model should combine:
+- team talent baseline / rolling form priors
+- starter quality and expected role
+- lineup quality and handedness context
+- bullpen quality and recent availability/fatigue
+- park / venue / roof context
+- weather context
+- explicit uncertainty / fallback indicators for lineup, starter, and weather inputs
+
+The first serious build should target the **full integrated pregame feature set**, not an intentionally weakened subset. Simpler feature subsets can still be used later as ablations or benchmarks, but not as the planned main model direction.
 
 ## How To Think About The Market
 
@@ -205,52 +206,47 @@ Outside research suggests:
 
 ## Mapping To Current Project Data Families
 
-This section is intentionally high-level and noncommittal for now.
-
 Current known project families that map well to the external research:
 - starter context
 - team strength / rolling form context
-- bullpen quality / freshness
+- bullpen quality / freshness / top-reliever availability
 - lineup / handedness / platoon support
 - venue / weather support
+- confidence / fallback / availability indicators
 
-The main question is **not** whether these families are conceptually important.
-The outside research says they are.
+The main question is **not** whether these families should be used in the first serious model.
+The current direction is that they **should** be used wherever they can be represented under the `pregame_1h` contract without leakage.
 
 The main remaining questions are:
-- which exact derived features best represent them
-- which should enter the first rebuilt training contract
-- how snapshot timing should be encoded
-- how much of the model should be prior-driven vs snapshot-driven
+- which exact derived features best represent each family
+- how those features should be grouped into the first integrated contract
+- how fallback/degraded states should be encoded
+- what ablations we should run after the first full integrated baseline is trained
 
 ## Open Questions
 
-1. What is the best first rebuilt model architecture?
-   - one near-first-pitch tabular model
-   - two-stage prior + updater
-   - additive/rating prior plus discriminative updater
-   - small ensemble of these views
+1. How much of the first serious model should be player-level versus aggregated lineup/team features?
 
-2. How much of the system should be player-level versus aggregated lineup/team features?
-
-3. How should lineup quality be represented?
+2. How should lineup quality be represented?
    - full lineup aggregate only
    - top-order weighting
    - explicit platoon matchup summaries
    - separate early vs late-inning / bullpen-facing summaries
 
-4. How should weather enter the moneyline model?
+3. How should weather enter the moneyline model?
    - directly as game-level context
    - mostly through run-environment transformations
    - with park interactions only
 
-5. What is the right role of the market in the eventual system?
+4. What is the right role of the market in the eventual system?
    - benchmark only
    - calibration check
    - separate disagreement engine
    - later meta-model input
 
-6. Should the first serious rebuild keep one model per snapshot or one model with snapshot-time features?
+5. What is the best confidence-layer design when lineup/starter/weather data fall back to weaker sources?
+
+6. What exact integrated feature set should define the first full `pregame_1h` model versus later challengers?
 
 ## What Future Agents Should Do Next
 

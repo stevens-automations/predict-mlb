@@ -18,6 +18,7 @@ Last updated: 2026-03-11
 - Canonical DB workflow hardening
 - Durable rebuild-path / CLI scoping
 - Canonical training-manifest consolidation from outside research
+- Refactor planning for the first full integrated `pregame_1h` training architecture so initial baseline training can start on the strongest realistic feature set
 
 ## What Remains Before Training
 

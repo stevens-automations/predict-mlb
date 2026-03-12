@@ -25,7 +25,9 @@ The recovery / promotion step is complete. The current decisions are about prote
 15. One canonical file per concern is the documentation and operational preference; one-off artifacts should be folded into canonical files or archived, not left as parallel sources of truth.
 16. External research on real MLB pricing and forecasting practice should drive the eventual training rebuild more than stale internal training docs.
 17. The primary planning surface for that rebuild is `docs/runbooks/training-manifest.md`.
-18. The target operating window for the eventual prediction system is near first pitch (roughly one hour pregame), with morning/base forecasts treated as priors or secondary snapshots rather than the main decision-grade output.
+18. The target operating window for the eventual prediction system is near first pitch (roughly one hour pregame).
+19. The first serious training direction should use the strongest realistic integrated `pregame_1h` feature set available under train/inference parity, not an intentionally weakened `v1`-style spine.
+20. Sportsbook odds are benchmark/comparison inputs only and are forbidden as model-training features unless Steven explicitly changes that policy later.
 
 ## What Is In Progress
 
