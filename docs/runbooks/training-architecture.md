@@ -2,7 +2,9 @@
 
 ## Goal
 
-This scaffold adds a repeatable offline training path for `predict-mlb` using the SQLite historical store as the canonical source of model rows.
+This runbook documents the **currently implemented** offline training scaffold for `predict-mlb` using the SQLite historical store as the canonical source of model rows.
+
+For the broader externally informed training strategy, target operating window, and next-rebuild planning direction, see `docs/runbooks/training-manifest.md`.
 
 Primary design choices:
 

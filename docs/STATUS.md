@@ -28,6 +28,7 @@ The canonical historical DB has been recovered and promoted. The repo is now in 
 - Protecting and simplifying the canonical DB workflow.
 - Defining the smallest durable rebuild path / CLI that can recreate the canonical DB without proliferating one-off scripts.
 - Isolating obvious legacy notebook/runtime artifacts away from the active root and script surfaces.
+- Consolidating external-research-driven training planning into one canonical manifest so the eventual training rebuild follows a single source of truth.
 
 ## What Remains Before Training
 

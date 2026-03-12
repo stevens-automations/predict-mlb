@@ -4,9 +4,11 @@ Last updated: 2026-03-09
 
 ## Goal
 
-Train immediately once historical ingestion completes, with a reliability-first loop that improves log loss first, preserves train/inference parity, and keeps later uplift tracks isolated behind explicit gates.
+This is an older optimization-oriented runbook for the current scaffold. It remains useful as historical context and for gate ideas, but the canonical planning surface for the next training rebuild is now `docs/runbooks/training-manifest.md`.
 
 ## Canonical Files
+
+Note: the files below describe the current scaffold and gate surfaces, not the full externally researched strategy direction.
 
 - `configs/training/baseline_lgbm.json` — immediate baseline run
 - `configs/training/tuned_candidate.json` — first challenger tuned for stability

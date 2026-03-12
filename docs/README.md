@@ -27,7 +27,7 @@ This repo keeps one canonical file per concern. Read the root docs first, then t
 
 - The canonical historical DB has been recovered and promoted.
 - The repo is now in post-promotion stabilization, not training.
-- The immediate focus is protecting the canonical DB workflow and finishing the durable rebuild path.
+- The immediate focus is protecting the canonical DB workflow, finishing the durable rebuild path, and consolidating external-research-driven training planning into one canonical manifest.
 - Broader cleanup and consolidation are intentionally deferred to the next passes so this phase stays reviewable.
 
 ## What Is Done
@@ -64,8 +64,9 @@ Follow the locked order:
 - `docs/schema-feature-map.md` - practical map of the canonical DB, major table groups, and what `v1` / `v2_phase1` materialize for training
 - `docs/runbooks/historical-ingestion-runbook.md` - canonical ingestion/rebuild commands, including the preferred `rebuild-history` orchestration path
 - `docs/runbooks/recovery-plan-2026-03-11.md` - recovery incident reference retained for traceability, not as the active execution plan
-- `docs/runbooks/training-architecture.md` - training flow and entrypoints
-- `docs/runbooks/model-optimization-plan.md` - baseline and challenger review gates
+- `docs/runbooks/training-manifest.md` - canonical external-research-driven training strategy and planning surface
+- `docs/runbooks/training-architecture.md` - current implemented training scaffold and entrypoints
+- `docs/runbooks/model-optimization-plan.md` - older optimization notes and gates; secondary to the manifest
 - `docs/research/feature-contract-v1.md` - stable `v1` contract reference
 - `docs/research/integrated-feature-contract-v2-phase1-2026-03-10.md` - integrated materialization reference
 - `docs/research/pre-training-validation-readiness-gate-2026-03-10.md` - detailed readiness criteria

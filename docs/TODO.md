@@ -17,6 +17,7 @@ Last updated: 2026-03-11
 
 - Canonical DB workflow hardening
 - Durable rebuild-path / CLI scoping
+- Canonical training-manifest consolidation from outside research
 
 ## What Remains Before Training
 

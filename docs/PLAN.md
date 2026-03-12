@@ -20,6 +20,7 @@ Last updated: 2026-03-11
 - Durable rebuild-path / CLI scoping
 - Top-level doc consolidation
 - Legacy surface isolation where coupling is low and confidence is high
+- External-research-driven training-manifest consolidation before the training rebuild is specified
 
 ## What Remains Before Training
 
