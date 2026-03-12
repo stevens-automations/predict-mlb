@@ -1,68 +1,96 @@
 # AGENT.md
 
-Purpose: project operating contract for any agent working in this repository.
+Purpose: operating contract for agents working in `predict-mlb`.
 
 ## 1) Mission
-- **Goal:** Run the daily MLB prediction pipeline and publish prediction/result tweets reliably.
-- **Primary outcome:** Correct predictions are generated, persisted, and posted once per intended schedule.
-- **Out of scope (non-goals):** Major architecture rewrites, new product features, or provider migrations unless explicitly requested.
 
-## 2) Success Criteria
-- [ ] Functional requirements met
-- [ ] Tests pass
-- [ ] No critical regressions introduced
-- [ ] Documentation updated for behavior changes
+- Primary mission: maintain and improve the historical rebuild, feature materialization, and offline training system.
+- Current operating phase: post-promotion stabilization of the recovered canonical historical DB.
+- Secondary/legacy scope: the older daily prediction / tweeting runtime remains in-repo, but it is not the primary architectural center for current work unless Steven explicitly redirects there.
+
+## 2) Canonical System
+
+- Canonical local DB: `data/mlb_history.db`
+- Canonical schema: `scripts/sql/history_schema.sql`
+- Canonical historical CLI: `scripts/history_ingest.py`
+- Canonical stable training contract: `feature_rows(feature_version='v1')`
+- Canonical training code: `train/`
+- Canonical training CLIs: `scripts/training/train_lgbm.py`, `scripts/training/experiment_runner.py`, `scripts/training/run_when_ready.py`
+- Canonical training configs: `configs/training/`
+- Canonical local model artifact home: `artifacts/model_registry/`
+- Demoted legacy homes: `legacy/` and `scripts/legacy_runtime/`
 
 ## 3) Hard Guardrails
-- Security first. If a request is risky/unclear, stop and ask.
-- Never expose secrets in code, logs, commits, or docs.
-- Do not perform destructive actions without explicit approval.
-- **Do not perform external write actions** (e.g., `git push`, PR/issue creation/edits, remote mutations) without explicit Steven approval via Telegram.
 
-## 4) Repo Ground Truth
-- **Stack / framework:** Python, pandas, statsapi, APScheduler, tweepy integration scripts.
-- **Entry points:** `main.py`, `predict.py`, `data_retriever.py`.
-- **Key directories:** `server/`, `models/`, `data/`, `tests/`, `docs/`.
-- **Critical files:** `predict.py`, `data.py`, `server/get_odds.py`, `server/prep_tweet.py`, `main.py`.
+- Do not treat `data/mlb_history.db` as disposable or scratch state.
+- Prefer scratch DB paths when validating rebuild logic or testing mutating workflows.
+- Mutating the canonical DB through `scripts/history_ingest.py` requires explicit opt-in via `--allow-canonical-writes`.
+- Preserve train / inference parity for approved feature families.
+- Do not introduce overlapping “temporary” docs when an existing canonical doc already owns that concern.
+- Do not perform external write actions without explicit Steven approval.
 
-## 5) Standard Commands
-- Install: `pip install -r requirements.txt` (if requirements file is present)
-- Dev/run: `python3 main.py`
-- Test: `python3 -m unittest discover -s tests -p 'test*.py' -v`
-- Lint/format: not standardized in-repo
-- Build: n/a
+## 4) Current Priorities
 
-## 6) Working Style
-- Make the smallest correct change first.
-- Prefer explicit, readable code over clever code.
-- Keep changes scoped; avoid unrelated refactors.
-- If assumptions are required, state them before proceeding.
+Execute work in this order unless Steven changes it:
 
-## 7) Delivery Workflow
-1. Understand task + constraints
-2. Propose short plan
-3. Implement in small, reviewable increments
-4. Run validation (tests/lint/build as relevant)
-5. Summarize: what changed, why, risks, next steps
+1. Protect and simplify the canonical DB workflow.
+2. Finish the smallest durable rebuild path / CLI.
+3. Perform broader repo cleanup and retire one-off surfaces.
+4. Keep root and canonical docs aligned with the promoted architecture.
+5. Cut a clean checkpoint before renewed training execution.
 
-## 8) Definition of Done (DoD)
-- [ ] Acceptance criteria satisfied
-- [ ] Validation commands executed successfully
-- [ ] Edge cases considered for touched logic
-- [ ] Notes/changelog/docs updated if needed
+## 5) Repo Ground Truth
 
-## 9) Open Decisions
-Track unresolved decisions in `docs/decisions.md` (or project equivalent) with:
-- Decision needed
-- Options
-- Recommendation
-- Owner
-- Due timing (today / this week / later)
+- Historical rebuild/materialization lives around `scripts/history_ingest.py` and `scripts/sql/history_schema.sql`.
+- The supported historical scope is seasons `2020-2025`.
+- `feature_rows(v1)` is the approved stable baseline for training.
+- `v2_phase1` exists in code/tests, but it is not the default baseline contract.
+- Training and evaluation are script/module based, not notebook dependent.
+- Older files such as `predict.py`, `server/`, and tweet/runtime storage paths are legacy or secondary unless the task explicitly concerns them.
+- High-confidence legacy artifacts that do not belong on the active surface should be moved under `legacy/` or `scripts/legacy_runtime/` rather than deleted when traceability still matters.
 
-## 10) Fast Handoff Format
-When handing off work, include:
-- **Status:** done / blocked / needs-review
-- **What changed:**
-- **Evidence:** tests/commands run
-- **Risks:**
-- **Next actions:** owner + due timing
+## 6) Standard Commands
+
+- Historical CLI help: `python3 scripts/history_ingest.py --help`
+- Training config inspection: `python3 scripts/training/train_lgbm.py --config configs/training/baseline_lgbm.json --print-only`
+- Baseline training run: `python3 scripts/training/train_lgbm.py --config configs/training/baseline_lgbm.json`
+- Experiment suite: `python3 scripts/training/experiment_runner.py --config configs/training/experiment_suite.json`
+- Tests: `python3 -m unittest discover -s tests -p 'test*.py' -v`
+
+Use the project virtualenv where available.
+
+## 7) Documentation Spine
+
+One canonical file per concern:
+
+- `README.md`: root repo orientation
+- `docs/README.md`: docs map
+- `docs/STATUS.md`: state
+- `docs/PLAN.md`: ordered gates
+- `docs/TODO.md`: short queue
+- `docs/decisions.md`: locked/open decisions
+
+If a note belongs in one of those files, update that file instead of creating a parallel status memo.
+
+## 8) Working Style
+
+- Make the smallest correct change that strengthens the canonical system.
+- Prefer consolidating around existing entrypoints instead of adding new ones.
+- When touching docs, remove ambiguity about what is canonical, what is legacy, and what is merely archival.
+- When touching scripts, favor fewer durable surfaces and clearer ownership boundaries.
+- State assumptions when they affect DB safety, rebuild semantics, or training validity.
+
+## 9) Definition Of Done
+
+- The requested change matches the current post-promotion architecture.
+- Any touched guidance points to the canonical DB and canonical workflows.
+- Validation was run where practical and reported honestly.
+- No new overlapping source of truth was introduced.
+
+## 10) Handoff Format
+
+- Status: done / blocked / needs-review
+- What changed:
+- Evidence:
+- Risks:
+- Next actions:

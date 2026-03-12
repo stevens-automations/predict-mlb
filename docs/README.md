@@ -1,43 +1,57 @@
 # Documentation Index
 
-This docs set is centered on five canonical files. Read these first.
+This repo keeps one canonical file per concern. Read the root docs first, then the docs set.
+
+## Root Docs
+
+1. `README.md` - root repo orientation and current architecture
+2. `AGENT.md` - operating contract for coding / ops agents
 
 ## Canonical Docs
 
 1. `docs/STATUS.md` - current state, what is done, what is in progress, and what remains before training
-2. `docs/PLAN.md` - the pre-training gate list for the first integrated materialization and run
+2. `docs/PLAN.md` - the ordered post-promotion stabilization gates before training resumes
 3. `docs/TODO.md` - the short execution queue derived from the plan
 4. `docs/decisions.md` - decisions that are locked vs still open
-5. `docs/README.md` - doc map and cleanup rules
+
+## Recommended Read Order
+
+1. `README.md`
+2. `docs/README.md`
+3. `docs/STATUS.md`
+4. `docs/PLAN.md`
+5. `docs/decisions.md`
+6. `docs/runbooks/historical-ingestion-runbook.md`
 
 ## Current State
 
-- The project is past the ingestion-foundation phase.
-- Pitcher appearances are backfilled.
-- Bullpen support is backfilled.
-- Lineup / platoon support is implemented; completed-game coverage is effectively complete and only two postponed 2020 games lack raw lineup snapshot rows.
-- Weather / venue support is largely fixed; the weather contract is simplified and historical support is effectively complete enough for downstream work.
-- `v2_phase1` integrated materialization already exists in code/tests, but it has not yet been materialized in the canonical DB.
-- Retraining is still deferred pending final validation and integrated feature materialization.
+- The canonical historical DB has been recovered and promoted.
+- The repo is now in post-promotion stabilization, not training.
+- The immediate focus is protecting the canonical DB workflow and finishing the durable rebuild path.
+- Broader cleanup and consolidation are intentionally deferred to the next passes so this phase stays reviewable.
 
 ## What Is Done
 
 - Canonical historical storage and ingestion flow are in place.
+- `data/mlb_history.db` is the canonical local store.
 - `feature_rows(v1)` remains the stable baseline contract.
-- Richer support layers now exist for pitcher appearances, bullpen, lineup / platoon, and weather / venue.
-- The weather pipeline is simplified enough that downstream integrated work no longer depends on more contract churn.
-- Season validation reports live under `docs/reports/phase2-validation-*.md`.
+- Season validation and recovery records already exist under `docs/reports/` and `docs/handoffs/`.
 
 ## What Is In Progress
 
-- Final validation across the expanded support layers.
-- Canonical `v2_phase1` materialization plus degraded-path review for the first serious richer run.
+- Canonical DB workflow protection and boundary clarification.
+- Durable rebuild-path / CLI tightening around `scripts/history_ingest.py rebuild-history` plus the minimum required stage subcommands.
+- Isolation of obvious legacy notebook/runtime utilities away from the active root surface.
 
 ## What Remains Before Training
 
-- Keep the known residual support gaps explicit and close any remaining validation gaps.
-- Materialize the integrated feature rows.
-- Keep retraining deferred until `docs/PLAN.md` gates are complete.
+Follow the locked order:
+
+1. Protect / lock the canonical DB workflow.
+2. Finish the durable rebuild path / CLI.
+3. Perform comprehensive repo cleanup.
+4. Consolidate and update canonical docs.
+5. Cut a clean checkpoint commit before training.
 
 ## Optional / High-Value Later Work
 
@@ -47,12 +61,16 @@ This docs set is centered on five canonical files. Read these first.
 
 ## Supporting Docs
 
-- `docs/runbooks/historical-ingestion-runbook.md` - ingestion commands and sequencing
+- `docs/schema-feature-map.md` - practical map of the canonical DB, major table groups, and what `v1` / `v2_phase1` materialize for training
+- `docs/runbooks/historical-ingestion-runbook.md` - canonical ingestion/rebuild commands, including the preferred `rebuild-history` orchestration path
+- `docs/runbooks/recovery-plan-2026-03-11.md` - recovery incident reference retained for traceability, not as the active execution plan
 - `docs/runbooks/training-architecture.md` - training flow and entrypoints
 - `docs/runbooks/model-optimization-plan.md` - baseline and challenger review gates
 - `docs/research/feature-contract-v1.md` - stable `v1` contract reference
 - `docs/research/integrated-feature-contract-v2-phase1-2026-03-10.md` - integrated materialization reference
 - `docs/research/pre-training-validation-readiness-gate-2026-03-10.md` - detailed readiness criteria
+- `legacy/README.md` - map of demoted notebook-era and scheduler artifacts
+- `scripts/legacy_runtime/README.md` - map of retained runtime migration/util scripts
 
 ## Reports And Archive
 
@@ -62,7 +80,10 @@ This docs set is centered on five canonical files. Read these first.
 
 ## Documentation Rules
 
+- Keep root orientation in `README.md` and agent operating guidance in `AGENT.md`.
+- Keep this file as the docs map only.
 - Keep project state in `STATUS`, execution gates in `PLAN`, short queue items in `TODO`, and scope calls in `decisions`.
+- Keep one canonical file per concern; avoid creating overlapping mini-status or checkpoint docs.
 - Keep run commands in runbooks and implementation detail in research docs, not in checkpoint notes.
 - Do not create new mini-status docs when an update belongs in one of the canonical files.
 - When a small note is still worth keeping, fold the takeaway into a canonical doc and leave the original in `docs/archive/` or `docs/research/`.

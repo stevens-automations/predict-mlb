@@ -1,38 +1,35 @@
-# Remaining Work Before First Serious Integrated Model Run
+# Post-Promotion Stabilization Plan
 
 Last updated: 2026-03-11
 
 ## Current State
 
-- Pitcher appearances and bullpen support are backfilled.
-- Lineup / platoon support is implemented; completed-game coverage is effectively complete and only postponed 2020 games remain without lineup snapshots.
-- Weather / venue support is largely fixed, and weather historical support is effectively complete enough for downstream work.
-- `feature_rows(v1)` remains the stable baseline.
-- `feature_rows(feature_version='v2_phase1')` already exists as a materializer in code/tests but is not yet backfilled in the canonical DB.
-- Retraining is intentionally deferred.
+- The canonical historical DB has been recovered and promoted.
+- Training is intentionally deferred.
+- The active phase is stabilization of the canonical DB workflow and preparation of a durable rebuild path.
 
 ## What Is Done
 
 - Historical ingestion foundation is in place.
-- The richer support-table direction is implemented across pitcher appearances, bullpen, lineup / platoon, and weather / venue.
-- The weather contract has been simplified enough to stop being the main blocker.
-- The remaining work is no longer schema invention; it is final validation plus integrated materialization.
+- The canonical DB exists locally at `data/mlb_history.db`.
+- The historical support-table and baseline feature-row path already exist.
 
 ## What Is In Progress
 
-- Final validation across bullpen, lineup / platoon, and weather support
-- First canonical `v2_phase1` materialization and degraded-path review
+- Canonical DB workflow protection
+- Durable rebuild-path / CLI scoping
+- Top-level doc consolidation
+- Legacy surface isolation where coupling is low and confidence is high
 
 ## What Remains Before Training
 
 ### Checklist
 
-- [ ] Keep the known residual support gaps explicit in audit/report output.
-- [ ] Run one compact coverage / sanity pass over bullpen, lineup / platoon, and weather / venue support.
-- [ ] Materialize the integrated feature rows and verify contract quality.
-- [ ] Confirm training readiness gates: DQ checks are sufficient, degraded behavior is explicit, and review outputs are readable.
-- [ ] Run the first serious integrated model training / evaluation pass.
-- [ ] Decide whether the integrated contract is good enough to become the new baseline, or whether another data/validation pass is required before retraining continues.
+- [ ] Protect and lock the canonical DB workflow.
+- [ ] Finish the durable rebuild path / CLI with minimal durable script surface area.
+- [ ] Perform comprehensive repo cleanup and consolidate one-off artifacts into canonical homes or archive.
+- [ ] Consolidate and update canonical docs so one file owns each concern.
+- [ ] Cut a clean checkpoint commit before starting any training work.
 
 ## Optional / High-Value Later Work
 

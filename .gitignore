@@ -11,6 +11,12 @@ mlb3year_test.txt
 mlb3year.pkl
 mlb3year_test_scaler.pkl
 
+# Repo-local runtime artifacts
+/artifacts/model_registry/*.json
+/data/*.db
+/data/*.db-*
+/docs/reports/logs/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

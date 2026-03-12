@@ -4,30 +4,27 @@ Last updated: 2026-03-11
 
 ## Current State
 
-- The core expansion work is largely done.
-- The project is waiting on final validation and integrated feature materialization, not more scattered feature ideation.
+- The canonical DB is promoted.
+- This queue is now for stabilization and cleanup sequencing, not training.
 
 ## What Is Done
 
-- Pitcher appearances backfilled
-- Bullpen support backfilled
-- Lineup / platoon support implemented; completed-game coverage effectively complete
-- Weather / venue support largely fixed; weather contract simplified
-- `feature_rows(v1)` still available as the stable fallback
-- `v2_phase1` materializer implemented but not yet backfilled into the canonical DB
+- Canonical historical DB recovered and promoted
+- Historical ingestion / support-table foundation present
+- `feature_rows(v1)` retained as the stable baseline
 
 ## What Is In Progress
 
-- Final validation across expanded support layers
-- Canonical `v2_phase1` materialization and degraded-path review before retraining
+- Canonical DB workflow hardening
+- Durable rebuild-path / CLI scoping
 
 ## What Remains Before Training
 
-- [ ] Keep the residual support gaps explicit in the audit/reporting output.
-- [ ] Run one concise validation pass over bullpen, lineup / platoon, and weather support coverage.
-- [ ] Materialize and validate the integrated feature rows.
-- [ ] Tighten DQ / degraded-path checks enough for a serious run review.
-- [ ] Run the first serious integrated model pass only after the above are complete.
+- [ ] Document and enforce the protected-canonical-DB boundary in the main ingestion workflow.
+- [ ] Collapse rebuild guidance toward one durable CLI / path and identify remaining one-off scripts to retire later.
+- [ ] Perform the broader repo cleanup pass after the rebuild path is settled.
+- [ ] Consolidate canonical docs and archive superseded notes.
+- [ ] Cut a clean checkpoint commit before any training execution resumes.
 
 ## Optional / High-Value Later Work
 

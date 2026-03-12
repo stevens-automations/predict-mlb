@@ -29,7 +29,7 @@ Recommended decision: **Do not start parity-model training yet.** Start only a l
 
 - `README.md`
 - `data.py`
-- `mlb-predict.ipynb`
+- `legacy/notebooks/mlb-predict.ipynb`
 
 ### Actual local DB state observed
 
@@ -433,7 +433,7 @@ This is high-confidence on the main conclusion because:
 
 - the current DB contents are directly inspectable
 - the current ingestion code clearly only writes schedule/label data
-- the legacy feature families are explicit in `README.md`, `data.py`, and `mlb-predict.ipynb`
+- the legacy feature families are explicit in `README.md`, `data.py`, and `legacy/notebooks/mlb-predict.ipynb`
 
 The remaining uncertainty is mainly around exact historical semantics of specific `statsapi` endpoints used in the old workflow.
 

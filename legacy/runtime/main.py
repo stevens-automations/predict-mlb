@@ -1,13 +1,21 @@
 from apscheduler.events import EVENT_SCHEDULER_STARTED, EVENT_JOB_EXECUTED  # type: ignore
 from apscheduler.schedulers.blocking import BlockingScheduler  # type: ignore
 from apscheduler.triggers.cron import CronTrigger  # type: ignore
-from predict import check_and_predict
 from datetime import datetime
-from runtime import validate_runtime
-from paths import load_env
-import time
-import pytz  # type: ignore
+from pathlib import Path
 import os
+import sys
+import time
+
+import pytz  # type: ignore
+
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from paths import load_env
+from predict import check_and_predict
+from runtime import validate_runtime
 
 # use model defined in .env or by default 'mlb4year'
 selected_model = "mlb4year"

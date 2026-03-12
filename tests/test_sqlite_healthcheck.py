@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from scripts.sqlite_healthcheck import build_report
+from scripts.legacy_runtime.sqlite_healthcheck import build_report
 from storage import SQLitePredictionStorage
 
 

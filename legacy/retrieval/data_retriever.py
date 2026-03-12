@@ -1,9 +1,16 @@
 #!/usr/bin/python3
 
 from datetime import datetime, timedelta
-from data import LeagueStats, TeamStats
+from pathlib import Path
 import calendar
 import os
+import sys
+
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from data import LeagueStats, TeamStats
 
 teams = {
     "Oakland Athletics": "OAK",

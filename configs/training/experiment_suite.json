@@ -11,8 +11,7 @@
         "min_train_samples": 1500,
         "test_size": 300,
         "step_size": 300,
-        "gap": 0,
-        "max_splits": 8
+        "gap": 0
       }
     },
     "registry": {

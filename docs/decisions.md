@@ -4,7 +4,7 @@ Last updated: 2026-03-11
 
 ## Current State
 
-The core data expansion direction is set. The remaining choices are about scope control and readiness for the first integrated materialization, not whether to pursue richer baseball context at all.
+The recovery / promotion step is complete. The current decisions are about protecting the promoted canonical DB, minimizing durable script surface area, and keeping one canonical file per concern during stabilization.
 
 ## What Is Done
 
@@ -15,22 +15,24 @@ The core data expansion direction is set. The remaining choices are about scope 
 5. Train / inference parity: mandatory for every approved feature family.
 6. Stable baseline contract: `feature_rows(feature_version='v1')` remains the approved current training baseline.
 7. Data expansion direction: support-table-first, then materialize a versioned feature contract.
-8. Current project priority: finish data expansion validation and canonical integrated feature materialization before retraining.
+8. Current project priority: protect the canonical DB workflow and finish the durable rebuild path before retraining.
 9. Current richer support families in scope: bullpen, lineup / platoon, and weather / venue.
 10. Handedness is part of the approved lineup / platoon support path; completed-game lineup coverage is effectively complete and the remaining lineup gap is limited to postponed 2020 games without raw snapshots.
 11. The weather contract is intentionally simplified; historical weather support is now considered sufficient for downstream integrated work.
 12. `v2_phase1` materialization exists in code/tests; the remaining integrated blocker is canonical DB backfill plus validation, not materializer implementation.
+13. The repo should expose one durable rebuild command/CLI that can recreate the historical DB and feature layers from scratch for recovery and reproducible retraining.
+14. Mutating the canonical local DB requires an explicit opt-in step in the primary ingestion CLI.
+15. One canonical file per concern is the documentation and operational preference; one-off artifacts should be folded into canonical files or archived, not left as parallel sources of truth.
 
 ## What Is In Progress
 
-1. Whether the four completed Mexico City games missing weather snapshots should remain explicit degraded-path cases for the first integrated run or be backfilled before training.
-2. The exact readiness evidence required before moving from "support layers exist" to "training-ready integrated contract."
+1. The exact rebuild-path shape that best balances durability with minimal long-lived script surface area.
+2. The scope and sequence for the broader cleanup pass once the rebuild path is locked.
 
 ## What Remains Before Training
 
-1. Promotion path after the first integrated run
-- Options: keep the integrated run as exploratory evidence only, or treat it as the candidate new baseline if it clears review gates.
-- Lean: decide only after the first integrated review packet exists.
+1. Rebuild-path implementation details after the command/ownership boundary is finalized.
+2. Training promotion choices after stabilization, cleanup, and a clean checkpoint commit exist.
 
 ## Optional / High-Value Later Work
 

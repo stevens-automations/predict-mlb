@@ -32,7 +32,7 @@ Scope: Improve predictive accuracy for current LightGBM/tabular pipeline while p
 ### Strengths
 - Mature reliability controls already in place (circuit breakers, retries, fail-open behaviors, schema validation).
 - Good test surface around guardrails/scheduling/sqlite/simulation.
-- Existing walk-forward retrain scaffold added (`scripts/model_refresh.py`) with log loss/Brier/accuracy outputs.
+- Existing walk-forward retrain scaffold retained under `scripts/legacy_runtime/model_refresh.py` with log loss/Brier/accuracy outputs.
 - Operationally simple architecture (single model artifact + local storage + scheduled runtime).
 
 ### Constraints
@@ -125,7 +125,7 @@ Scope: Improve predictive accuracy for current LightGBM/tabular pipeline while p
   - Require monotonic tier quality (H > M > L win rate over rolling windows).
 
 ### M4. Expand walk-forward refresh into a **scheduled model governance loop**
-- **Approach**: Monthly/biweekly retrain candidates via `scripts/model_refresh.py`, promote only through objective gate.
+- **Approach**: Monthly/biweekly retrain candidates via `scripts/legacy_runtime/model_refresh.py`, promote only through objective gate.
 - **Expected impact**: Avoids stale-model decay; periodic modest gains.
 - **Reliability risk**: Low if strict promotion gates are enforced.
 - **Complexity**: Medium.

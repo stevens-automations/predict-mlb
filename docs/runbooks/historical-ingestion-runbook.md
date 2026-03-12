@@ -1,6 +1,6 @@
 # Historical Ingestion Runbook (Season-Parameterized Parity-Safe Enrichment + V1 Feature Rows)
 
-Last updated: 2026-03-10
+Last updated: 2026-03-11
 
 ## Purpose
 
@@ -10,6 +10,7 @@ Scope includes schedule ingest, venue/weather support, team stats backfill, raw 
 ## Canonical Decisions Encoded
 
 - Canonical historical store: `data/mlb_history.db` (SQLite)
+- Mutating commands against the canonical DB require `--allow-canonical-writes`; use scratch DBs for exploratory validation by default.
 - Initial backfill target scope: seasons `2020-2025`
 - Historical odds backfill: **disabled** (odds are forward-only during active season)
 - Data contracts: strict with degraded fallback path (no silent game skipping)
@@ -22,27 +23,34 @@ Scope includes schedule ingest, venue/weather support, team stats backfill, raw 
 From repo root:
 
 ```bash
-python scripts/history_ingest.py init-db
-python scripts/history_ingest.py backfill --season 2024
-python scripts/history_ingest.py incremental --date 2026-03-09
-python scripts/history_ingest.py backfill-team-stats --season 2021
-python scripts/history_ingest.py backfill-pitcher-appearances --season 2021
-python scripts/history_ingest.py backfill-bullpen-support --season 2021 --top-n-values 3,5
-python scripts/history_ingest.py backfill-lineup-support --season 2021
-python scripts/history_ingest.py backfill-pitcher-context --season 2021
-python scripts/history_ingest.py sync-venues --season 2021
-python scripts/history_ingest.py backfill-game-weather --season 2021
-python scripts/history_ingest.py update-lineup-support --date 2026-03-10
-python scripts/history_ingest.py update-game-weather-forecasts --date 2026-03-10 --as-of-ts 2026-03-10T15:00:00Z
-python scripts/history_ingest.py materialize-feature-rows --season 2021 --feature-version v1
-python scripts/history_ingest.py materialize-feature-rows --season 2021 --feature-version v2_phase1
-python scripts/history_ingest.py dq --partition season=2024
+python scripts/history_ingest.py --db /tmp/mlb_history_scratch.db rebuild-history --season-start 2020 --season-end 2025
+python scripts/history_ingest.py --db /tmp/mlb_history_scratch.db rebuild-history --season 2024 --stages base team-stats pitcher-context pitcher-appearances bullpen-support lineup-support venues weather feature-rows
+python scripts/history_ingest.py --db data/mlb_history.db --allow-canonical-writes rebuild-history --season 2024 --stages base team-stats pitcher-context pitcher-appearances bullpen-support lineup-support venues weather feature-rows
+python scripts/history_ingest.py --allow-canonical-writes init-db
+python scripts/history_ingest.py --allow-canonical-writes backfill --season 2024
+python scripts/history_ingest.py --allow-canonical-writes incremental --date 2026-03-09
+python scripts/history_ingest.py --allow-canonical-writes backfill-team-stats --season 2021
+python scripts/history_ingest.py --allow-canonical-writes backfill-pitcher-appearances --season 2021
+python scripts/history_ingest.py --allow-canonical-writes backfill-bullpen-support --season 2021 --top-n-values 3,5
+python scripts/history_ingest.py --allow-canonical-writes backfill-lineup-support --season 2021
+python scripts/history_ingest.py --allow-canonical-writes backfill-pitcher-context --season 2021 --repair-mode
+python scripts/history_ingest.py audit-pitcher-context --season 2021
+python scripts/history_ingest.py --allow-canonical-writes sync-venues --season 2021
+python scripts/history_ingest.py --allow-canonical-writes backfill-game-weather --season 2021
+python scripts/history_ingest.py --allow-canonical-writes update-lineup-support --date 2026-03-10
+python scripts/history_ingest.py --allow-canonical-writes update-game-weather-forecasts --date 2026-03-10 --as-of-ts 2026-03-10T15:00:00Z
+python scripts/history_ingest.py --allow-canonical-writes materialize-feature-rows --season 2021 --feature-version v1
+python scripts/history_ingest.py --allow-canonical-writes materialize-feature-rows --season 2021 --feature-version v2_phase1
+python scripts/history_ingest.py --allow-canonical-writes dq --partition season=2024
 ```
 
 ### Expected behavior
 
+- `rebuild-history` is the preferred orchestration entrypoint for safe-by-default rebuild validation and reproducible season-range rebuilds.
+  - it initializes/updates schema first, never deletes or replaces the target DB, and normalizes any explicit `--stages` selection into canonical stage order
+  - use a scratch `--db` path by default; add `--allow-canonical-writes` only when intentionally mutating `data/mlb_history.db`
 - `init-db` creates/updates schema and run ledger row in `ingestion_runs`.
-- `backfill` performs bounded `statsapi.schedule` pulls by season partition and upserts:
+- `backfill` is the narrow games/labels-only stage. It performs bounded `statsapi.schedule` pulls by season partition and upserts:
   - `games` rows for final/relevant MLB games
   - `labels` rows for final games (`did_home_win`, `run_differential`, `total_runs`)
 - `incremental` performs bounded one-day `statsapi.schedule` ingest with the same game/label upserts.
@@ -73,12 +81,21 @@ python scripts/history_ingest.py dq --partition season=2024
   - `season_stats_scope='season_to_date_prior_completed_games'`
   - `season_stats_leakage_risk=0`
   - when a probable starter is known but has no prior completed pitching data, season stat fields stay `NULL`
-- `materialize-feature-rows` writes one canonical `feature_rows(feature_version='v1')` row per selected-season game using only prior completed team results plus the already-materialized pitcher context. Stable key:
+  - canonical-write safety: null-safe fallback rows are not allowed to overwrite an existing richer canonical row with starter stats already present
+  - repair-mode safety: `--repair-mode` aborts before writes when `schedule_fallback_used=true`, when the null-safe fallback share breaches the configured threshold, or when missing probable-starter identity breaches the configured threshold
+- `audit-pitcher-context --season <year>` prints the season-level starter-context quality report used for recovery review and canonical promotion:
+  - `null_safe_fallback_rows`
+  - `null_safe_fallback_share`
+  - `missing_stats_with_known_probable_rows`
+  - `missing_probable_identity_rows`
+  - `rows_with_nonzero_leakage_risk`
+  - `safe_for_canonical_write`
 - `materialize-feature-rows --feature-version v2_phase1` reuses the same `v1` team/starter spine and adds the first integrated support blocks:
   - bullpen aggregate state + top-3 reliever support
   - lineup structure + platoon fallback keyed by opposing starter hand
   - coarse venue/weather context with explicit availability flags
   Training on `v2_phase1` remains gated on the separate validation/readiness review.
+  - safety gate: by default, `v2_phase1` materialization now fails fast when `audit-pitcher-context` shows broad null-safe starter-context damage; `--allow-unsafe-pitcher-context` is the explicit escape hatch and should not be used for canonical rebuilds
 - `audit-support-coverage` reports the exact residual support gaps by season, including missing weather/lineup game IDs and whether the selected integrated `feature_version` has been materialized yet.
 - `materialize-feature-rows` writes one canonical `feature_rows(feature_version='v1')` row per selected-season game using only prior completed team results plus the already-materialized pitcher context. Stable key:
   - `(game_id, feature_version, as_of_ts)`
@@ -166,13 +183,34 @@ Interpretation:
 Before validation, run the three season-specific jobs in order. Example for 2021:
 
 ```bash
-.venv/bin/python scripts/history_ingest.py --db data/mlb_history.db backfill-team-stats --season 2021
-.venv/bin/python scripts/history_ingest.py --db data/mlb_history.db backfill-pitcher-appearances --season 2021
-.venv/bin/python scripts/history_ingest.py --db data/mlb_history.db backfill-bullpen-support --season 2021 --top-n-values 3,5
-.venv/bin/python scripts/history_ingest.py --db data/mlb_history.db backfill-lineup-support --season 2021
-.venv/bin/python scripts/history_ingest.py --db data/mlb_history.db backfill-pitcher-context --season 2021
-.venv/bin/python scripts/history_ingest.py --db data/mlb_history.db materialize-feature-rows --season 2021 --feature-version v1
+.venv/bin/python scripts/history_ingest.py --db data/mlb_history.db --allow-canonical-writes backfill-team-stats --season 2021
+.venv/bin/python scripts/history_ingest.py --db data/mlb_history.db --allow-canonical-writes backfill-pitcher-appearances --season 2021
+.venv/bin/python scripts/history_ingest.py --db data/mlb_history.db --allow-canonical-writes backfill-bullpen-support --season 2021 --top-n-values 3,5
+.venv/bin/python scripts/history_ingest.py --db data/mlb_history.db --allow-canonical-writes backfill-lineup-support --season 2021
+.venv/bin/python scripts/history_ingest.py --db data/mlb_history.db --allow-canonical-writes backfill-pitcher-context --season 2021 --repair-mode
+.venv/bin/python scripts/history_ingest.py --db data/mlb_history.db audit-pitcher-context --season 2021
+.venv/bin/python scripts/history_ingest.py --db data/mlb_history.db --allow-canonical-writes materialize-feature-rows --season 2021 --feature-version v1
 .venv/bin/python scripts/history_ingest.py --db data/mlb_history.db audit-support-coverage --feature-version v2_phase1
+```
+
+For repeated season-by-season maintenance, use shell loops directly from the runbook instead of keeping one-off runner scripts in the repo. Examples:
+
+```bash
+for season in 2020 2021 2022 2023 2024 2025; do
+  .venv/bin/python scripts/history_ingest.py --db data/mlb_history.db --allow-canonical-writes sync-venues --season "$season"
+  .venv/bin/python scripts/history_ingest.py --db data/mlb_history.db --allow-canonical-writes backfill-game-weather --season "$season"
+done
+```
+
+```bash
+for season in 2020 2021 2022 2023 2024 2025; do
+  .venv/bin/python scripts/history_ingest.py --db data/mlb_history.db audit-pitcher-context --season "$season"
+  .venv/bin/python scripts/history_ingest.py --db data/mlb_history.db --allow-canonical-writes backfill-pitcher-context --season "$season" --repair-mode
+  .venv/bin/python scripts/history_ingest.py --db data/mlb_history.db audit-pitcher-context --season "$season"
+  .venv/bin/python scripts/history_ingest.py --db data/mlb_history.db --allow-canonical-writes materialize-feature-rows --season "$season" --feature-version v1
+  .venv/bin/python scripts/history_ingest.py --db data/mlb_history.db --allow-canonical-writes materialize-feature-rows --season "$season" --feature-version v2_phase1
+  .venv/bin/python scripts/history_ingest.py --db data/mlb_history.db audit-support-coverage --season "$season" --feature-version v2_phase1
+done
 ```
 
 Then run validation:
@@ -182,7 +220,7 @@ Then run validation:
   --db data/mlb_history.db \
   --season 2021 \
   --output docs/reports/phase2-validation-2021.md \
-  --rerun-cmd ".venv/bin/python scripts/history_ingest.py --db data/mlb_history.db materialize-feature-rows --season 2021 --feature-version v1"
+  --rerun-cmd ".venv/bin/python scripts/history_ingest.py --db data/mlb_history.db --allow-canonical-writes materialize-feature-rows --season 2021 --feature-version v1"
 ```
 
 Interpretation guide:
@@ -206,6 +244,10 @@ Interpretation guide:
 - **Checkpoint/run observability consistency**
   - PASS: latest `ingestion_runs.note` counters for `season=<year>` align with checkpoint `cursor_json`.
   - FAIL: missing run/checkpoint rows or counter mismatches.
+- **Pitcher-context recovery safety**
+  - PASS: `audit-pitcher-context` reports `safe_for_canonical_write=true`.
+  - PASS: `rows_with_nonzero_leakage_risk=0`.
+  - FAIL: broad null-safe fallback share, missing probable-starter identities, or any schedule-fallback-driven repair run.
 
 Go/No-Go rule for moving to 2021:
 
