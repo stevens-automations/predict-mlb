@@ -70,15 +70,13 @@ Required environment variables:
 
 ### Database note
 
-`data/mlb_history.db` is **not included in this repo** — it's too large (~500MB+). On first run the database will be empty. To restore the full historical database (2020–2025):
-- Contact the repo owner, or
-- Run the historical ingestion pipeline (see [docs/REFACTOR_SPEC.md](docs/REFACTOR_SPEC.md))
+The historical database (2020–2025) is **not included** due to size. The pipeline will build the 2026 season database automatically from day 1 of the season. To retrain on historical data, see [docs/REFACTOR_SPEC.md](docs/REFACTOR_SPEC.md).
 
 ### Model artifact
 
 The trained model artifact **is** included in the repo at:
 ```
-artifacts/model_registry/matchup_lgbm_v4_tuned_final__20260319T122216Z/
+artifacts/model_registry/matchup_lgbm_v4_tuned_final__20260319T122216Z/model.pkl
 ```
 No retraining is needed to run daily predictions.
 

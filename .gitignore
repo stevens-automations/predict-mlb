@@ -14,7 +14,9 @@ mlb3year_test_scaler.pkl
 # Repo-local runtime artifacts
 /artifacts/model_registry/*.json
 # Model registry: ignore large binaries but keep metrics and feature importance
+# Exclude all model pkls except production
 artifacts/model_registry/**/model.pkl
+!artifacts/model_registry/matchup_lgbm_v4_tuned_final__20260319T122216Z/model.pkl
 !artifacts/model_registry/**/metrics.json
 !artifacts/model_registry/**/feature_importance.json
 # macOS metadata
