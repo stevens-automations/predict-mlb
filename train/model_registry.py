@@ -37,6 +37,7 @@ def register_model_run(
     metadata: dict[str, Any],
     metrics: dict[str, Any],
     source_model_path: str | Path,
+    extra_artifact_paths: list[str | Path] | None = None,
 ) -> RegistryRecord:
     registry_root = Path(registry_root)
     run_id = f"{experiment_name}__{model_name}__{utc_timestamp()}"
@@ -46,6 +47,12 @@ def register_model_run(
     source_model_path = Path(source_model_path)
     model_path = run_dir / source_model_path.name
     shutil.copy2(source_model_path, model_path)
+    copied_extra_artifacts: list[Path] = []
+    for artifact_path in extra_artifact_paths or []:
+        artifact_path = Path(artifact_path)
+        destination = run_dir / artifact_path.name
+        shutil.copy2(artifact_path, destination)
+        copied_extra_artifacts.append(destination)
 
     metadata_path = run_dir / "metadata.json"
     metrics_path = run_dir / "metrics.json"
@@ -53,7 +60,12 @@ def register_model_run(
     metadata_payload = dict(metadata)
     metadata_payload["run_id"] = run_id
     metadata_payload["registered_at"] = utc_timestamp()
-    metadata_payload["artifact_files"] = [model_path.name, metadata_path.name, metrics_path.name]
+    metadata_payload["artifact_files"] = [
+        model_path.name,
+        metadata_path.name,
+        metrics_path.name,
+        *[path.name for path in copied_extra_artifacts],
+    ]
 
     metadata_path.write_text(json.dumps(metadata_payload, indent=2, sort_keys=True, default=_json_default) + "\n")
     metrics_path.write_text(json.dumps(metrics, indent=2, sort_keys=True, default=_json_default) + "\n")
@@ -75,4 +87,3 @@ def register_model_run(
         metadata_path=metadata_path,
         metrics_path=metrics_path,
     )
-

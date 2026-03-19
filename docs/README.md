@@ -9,8 +9,8 @@ This repo keeps one canonical file per concern. Read the root docs first, then t
 
 ## Canonical Docs
 
-1. `docs/STATUS.md` - current state, what is done, what is in progress, and what remains before training
-2. `docs/PLAN.md` - the ordered post-promotion stabilization gates before training resumes
+1. `docs/STATUS.md` - current state, active exploratory training direction, and honest blockers
+2. `docs/PLAN.md` - canonical roadmap to season start for model development, selection, and downstream freeze points
 3. `docs/TODO.md` - the short execution queue derived from the plan
 4. `docs/decisions.md` - decisions that are locked vs still open
 
@@ -26,32 +26,34 @@ This repo keeps one canonical file per concern. Read the root docs first, then t
 ## Current State
 
 - The canonical historical DB has been recovered and promoted.
-- The repo is now in post-promotion stabilization, not training.
-- The immediate focus is protecting the canonical DB workflow, finishing the durable rebuild path, and consolidating external-research-driven training planning into one canonical manifest.
-- Broader cleanup and consolidation are intentionally deferred to the next passes so this phase stays reviewable.
+- The repo is now in exploratory model training and optimization, not MVP minimization.
+- The immediate focus is training and comparing models on the full integrated `pregame_1h` feature set that the historical DB can already support.
+- The canonical game-prediction training direction is fixed: integrated `pregame_1h`, `v2_phase1` features, no sportsbook inputs, and `2025` reserved as the untouched holdout.
+- LightGBM is the first active model path. Logistic regression stays in the scaffold as a benchmark/comparison path.
+- Daily inference architecture and any final schema lock should follow the training results rather than constrain them prematurely.
 
 ## What Is Done
 
 - Canonical historical storage and ingestion flow are in place.
 - `data/mlb_history.db` is the canonical local store.
-- `feature_rows(v1)` remains the stable baseline contract.
+- The canonical training path is now the integrated `pregame_1h` contract on `feature_rows(v2_phase1)`.
 - Season validation and recovery records already exist under `docs/reports/` and `docs/handoffs/`.
 
 ## What Is In Progress
 
-- Canonical DB workflow protection and boundary clarification.
-- Durable rebuild-path / CLI tightening around `scripts/history_ingest.py rebuild-history` plus the minimum required stage subcommands.
-- Isolation of obvious legacy notebook/runtime utilities away from the active root surface.
+- Canonical training/doc consolidation around one exploratory-modeling narrative.
+- LightGBM-first experiment scaffolding on the integrated `v2_phase1` contract.
+- Honest readiness/blocker reporting so local dependency gaps do not obscure what can already be validated.
 
-## What Remains Before Training
+## What Remains Before Season Start
 
 Follow the locked order:
 
-1. Protect / lock the canonical DB workflow.
-2. Finish the durable rebuild path / CLI.
-3. Perform comprehensive repo cleanup.
-4. Consolidate and update canonical docs.
-5. Cut a clean checkpoint commit before training.
+1. Run and compare the first integrated LightGBM experiments on 2020-2024 development seasons plus 2025 holdout.
+2. Use benchmark/challenger results to decide which feature families and schema requirements are truly worth carrying into live inference.
+3. Backfill or harden any remaining feature families only when they improve the winning training path.
+4. Finalize daily inference architecture and operational schema around the winning contract.
+5. Complete cleanup and deployment-oriented hardening after the model direction is locked.
 
 ## Optional / High-Value Later Work
 
@@ -66,7 +68,7 @@ Follow the locked order:
 - `docs/runbooks/recovery-plan-2026-03-11.md` - recovery incident reference retained for traceability, not as the active execution plan
 - `docs/runbooks/training-manifest.md` - canonical external-research-driven training strategy and planning surface
 - `docs/runbooks/training-architecture.md` - current implemented training scaffold and entrypoints
-- `docs/runbooks/model-optimization-plan.md` - older optimization notes and gates; secondary to the manifest
+- `docs/runbooks/model-optimization-plan.md` - supporting optimization roadmap aligned to the LightGBM-first integrated training phase
 - `docs/research/feature-contract-v1.md` - stable `v1` contract reference
 - `docs/research/integrated-feature-contract-v2-phase1-2026-03-10.md` - integrated materialization reference
 - `docs/research/pre-training-validation-readiness-gate-2026-03-10.md` - detailed readiness criteria

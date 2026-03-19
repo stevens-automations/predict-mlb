@@ -1,7 +1,7 @@
 # Phase 2 Validation Report (2024)
 
 - Generated: `2026-03-09T19:48:52`
-- DB: `/Users/openclaw/.openclaw/workspace/projects/predict-mlb/data/mlb_history.db`
+- DB: `/Users/openclaw/.openclaw/projects/predict-mlb/data/mlb_history.db`
 - Overall: **PASS**
 
 ## Check Results

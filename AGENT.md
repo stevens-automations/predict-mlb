@@ -1,96 +1,67 @@
-# AGENT.md
+# AGENT.md — predict-mlb Operating Contract
+Last updated: 2026-03-18
 
-Purpose: operating contract for agents working in `predict-mlb`.
+## 1. Mission
+Build and maintain a clean MLB game prediction system. Primary current phase: **full feature layer refactor** to achieve >66% accuracy on 2025 holdout (up from ~52% baseline).
 
-## 1) Mission
+**Read `docs/REFACTOR_SPEC.md` before doing any development work in this project.** It is the canonical reference for all architectural decisions.
 
-- Primary mission: maintain and improve the historical rebuild, feature materialization, and offline training system.
-- Current operating phase: post-promotion stabilization of the recovered canonical historical DB.
-- Secondary/legacy scope: the older daily prediction / tweeting runtime remains in-repo, but it is not the primary architectural center for current work unless Steven explicitly redirects there.
+## 2. Current Phase: Feature Layer Refactor
+We are rebuilding the engineered feature layer from scratch. The raw historical tables are solid and stay untouched. See `docs/REFACTOR_SPEC.md` for full spec.
 
-## 2) Canonical System
+**Phase 1 (active):** Build 6 new Layer 2 tables:
+- `player_career_pitching_stats` — one-time batch fetch from statsapi
+- `team_pregame_stats` — cumulative team batting/record stats going into each game
+- `starter_pregame_stats` — starter ERA/WHIP/K% computed from game_pitcher_appearances
+- `bullpen_pregame_stats` — season bullpen quality + fatigue metrics
+- `lineup_pregame_context` — lineup handedness vs opposing starter
+- `team_vs_hand_pregame_stats` — team OPS vs LHP/RHP starters this season
 
-- Canonical local DB: `data/mlb_history.db`
-- Canonical schema: `scripts/sql/history_schema.sql`
-- Canonical historical CLI: `scripts/history_ingest.py`
-- Canonical stable training contract: `feature_rows(feature_version='v1')`
-- Canonical training code: `train/`
-- Canonical training CLIs: `scripts/training/train_lgbm.py`, `scripts/training/experiment_runner.py`, `scripts/training/run_when_ready.py`
-- Canonical training configs: `configs/training/`
-- Canonical local model artifact home: `artifacts/model_registry/`
-- Demoted legacy homes: `legacy/` and `scripts/legacy_runtime/`
+**Phase 2:** Assemble `game_matchup_features` flat training/inference row from all Layer 2 tables.
 
-## 3) Hard Guardrails
+**Phase 3:** Train LightGBM baseline + logistic regression benchmark. Target >66% holdout.
 
-- Do not treat `data/mlb_history.db` as disposable or scratch state.
-- Prefer scratch DB paths when validating rebuild logic or testing mutating workflows.
-- Mutating the canonical DB through `scripts/history_ingest.py` requires explicit opt-in via `--allow-canonical-writes`.
-- Preserve train / inference parity for approved feature families.
-- Do not introduce overlapping “temporary” docs when an existing canonical doc already owns that concern.
-- Do not perform external write actions without explicit Steven approval.
+**Phase 4:** Cleanup — drop old v1/v2 tables and code.
 
-## 4) Current Priorities
+## 3. Hard Guardrails
+- **Do NOT modify raw tables:** `games`, `game_team_stats`, `game_pitcher_appearances`, `game_lineup_snapshots`, `game_weather_snapshots`, `labels`, `player_handedness_dim`, `venue_dim`
+- **Do NOT push to git** without explicit Mako/Steven approval
+- **Do NOT touch main branch** — all work on `staging/preseason-consolidated`
+- **Do NOT modify `data/mlb_history.db` raw data** — only add new derived tables
+- Canonical DB: `data/mlb_history.db` — never disposable
+- Use repo venv for all Python; do not install system packages
+- Commit as `stevensautomations`
 
-Execute work in this order unless Steven changes it:
+## 4. Verification Standard
+Always verify new tables using **game_id=661199 (Aug 15, 2022)** — a mid-season game with full data. Never use opening day games for verification (cold-start NULLs expected there).
 
-1. Protect and simplify the canonical DB workflow.
-2. Finish the smallest durable rebuild path / CLI.
-3. Perform broader repo cleanup and retire one-off surfaces.
-4. Keep root and canonical docs aligned with the promoted architecture.
-5. Cut a clean checkpoint before renewed training execution.
+Expected values for game 661199:
+- Dodgers (away, team_id=119): ~112 games, ~0.699 win_pct, strong OPS
+- Julio Urías (pitcher_id=628711): ~22 starts, ERA ~2.50, strike_pct ~0.693
 
-## 5) Repo Ground Truth
+## 5. Key Files
+| File | Purpose |
+|------|---------|
+| `docs/REFACTOR_SPEC.md` | **Primary spec** — all architectural decisions |
+| `docs/STATUS.md` | Current project status |
+| `data/mlb_history.db` | Canonical DB |
+| `scripts/history_ingest.py` | Historical data pipeline (large — read targeted sections) |
+| `scripts/sql/history_schema.sql` | DB schema |
+| `scripts/training/train_lgbm.py` | LightGBM training |
+| `configs/training/` | Training configs |
+| `artifacts/model_registry/` | Model artifacts |
 
-- Historical rebuild/materialization lives around `scripts/history_ingest.py` and `scripts/sql/history_schema.sql`.
-- The supported historical scope is seasons `2020-2025`.
-- `feature_rows(v1)` is the approved stable baseline for training.
-- `v2_phase1` exists in code/tests, but it is not the default baseline contract.
-- Training and evaluation are script/module based, not notebook dependent.
-- Older files such as `predict.py`, `server/`, and tweet/runtime storage paths are legacy or secondary unless the task explicitly concerns them.
-- High-confidence legacy artifacts that do not belong on the active surface should be moved under `legacy/` or `scripts/legacy_runtime/` rather than deleted when traceability still matters.
-
-## 6) Standard Commands
-
-- Historical CLI help: `python3 scripts/history_ingest.py --help`
-- Training config inspection: `python3 scripts/training/train_lgbm.py --config configs/training/baseline_lgbm.json --print-only`
-- Baseline training run: `python3 scripts/training/train_lgbm.py --config configs/training/baseline_lgbm.json`
-- Experiment suite: `python3 scripts/training/experiment_runner.py --config configs/training/experiment_suite.json`
+## 6. Tooling
+- **Primary:** Codex CLI — `codex -m gpt-5.4` for all code execution
+- **Agent reasoning layer:** Claude Sonnet 4.6 (the agent itself — not for code execution)
+- Repo venv: `source .venv/bin/activate`
 - Tests: `python3 -m unittest discover -s tests -p 'test*.py' -v`
 
-Use the project virtualenv where available.
-
-## 7) Documentation Spine
-
-One canonical file per concern:
-
-- `README.md`: root repo orientation
-- `docs/README.md`: docs map
-- `docs/STATUS.md`: state
-- `docs/PLAN.md`: ordered gates
-- `docs/TODO.md`: short queue
-- `docs/decisions.md`: locked/open decisions
-
-If a note belongs in one of those files, update that file instead of creating a parallel status memo.
-
-## 8) Working Style
-
-- Make the smallest correct change that strengthens the canonical system.
-- Prefer consolidating around existing entrypoints instead of adding new ones.
-- When touching docs, remove ambiguity about what is canonical, what is legacy, and what is merely archival.
-- When touching scripts, favor fewer durable surfaces and clearer ownership boundaries.
-- State assumptions when they affect DB safety, rebuild semantics, or training validity.
-
-## 9) Definition Of Done
-
-- The requested change matches the current post-promotion architecture.
-- Any touched guidance points to the canonical DB and canonical workflows.
-- Validation was run where practical and reported honestly.
-- No new overlapping source of truth was introduced.
-
-## 10) Handoff Format
-
-- Status: done / blocked / needs-review
-- What changed:
-- Evidence:
-- Risks:
-- Next actions:
+## 7. Handoff Format (always use when reporting to Mako)
+```
+Status: done | blocked | needs-review
+What changed:
+Evidence: (row counts, verification results for game 661199, metrics)
+Risks:
+Next actions:
+```

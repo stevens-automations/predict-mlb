@@ -247,6 +247,10 @@ def lineup_support_job_name(season: int) -> str:
     return f"lineup-support-{season}"
 
 
+def batting_support_job_name(season: int) -> str:
+    return f"batting-support-{season}"
+
+
 def feature_rows_job_name(season: int, feature_version: str) -> str:
     return f"feature-rows-{feature_version}-{season}"
 
@@ -562,6 +566,48 @@ def _ensure_schema_migrations(conn: sqlite3.Connection) -> None:
     for col, col_type in platoon_migrations.items():
         if platoon_columns and col not in platoon_columns:
             conn.execute(f"ALTER TABLE team_platoon_splits ADD COLUMN {col} {col_type}")
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS team_batting_game_state (
+          game_id INTEGER NOT NULL,
+          team_id INTEGER NOT NULL,
+          side TEXT NOT NULL CHECK(side IN ('home', 'away')),
+          as_of_ts TEXT NOT NULL,
+          stats_scope TEXT NOT NULL DEFAULT 'prior_completed_games_only',
+          season_games_in_sample INTEGER NOT NULL DEFAULT 0,
+          season_batting_avg REAL,
+          season_obp REAL,
+          season_slg REAL,
+          season_ops REAL,
+          season_runs_scored_per_game REAL,
+          season_runs_allowed_per_game REAL,
+          season_strikeouts_per_game REAL,
+          season_walks_per_game REAL,
+          source_updated_at TEXT,
+          ingested_at TEXT NOT NULL DEFAULT (datetime('now')),
+          PRIMARY KEY (game_id, side, as_of_ts),
+          FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE CASCADE
+        )
+        """
+    )
+    batting_state_columns = {row["name"] for row in conn.execute("PRAGMA table_info(team_batting_game_state)")}
+    batting_state_migrations = {
+        "stats_scope": "TEXT NOT NULL DEFAULT 'prior_completed_games_only'",
+        "season_games_in_sample": "INTEGER NOT NULL DEFAULT 0",
+        "season_batting_avg": "REAL",
+        "season_obp": "REAL",
+        "season_slg": "REAL",
+        "season_ops": "REAL",
+        "season_runs_scored_per_game": "REAL",
+        "season_runs_allowed_per_game": "REAL",
+        "season_strikeouts_per_game": "REAL",
+        "season_walks_per_game": "REAL",
+        "source_updated_at": "TEXT",
+    }
+    for col, col_type in batting_state_migrations.items():
+        if batting_state_columns and col not in batting_state_columns:
+            conn.execute(f"ALTER TABLE team_batting_game_state ADD COLUMN {col} {col_type}")
 
 
 def start_run(conn: sqlite3.Connection, mode: str, partition_key: str | None, config: IngestConfig) -> str:
@@ -1243,6 +1289,135 @@ def upsert_team_bullpen_game_state(conn: sqlite3.Connection, row: dict[str, Any]
         ),
     )
     conn.commit()
+
+
+BATTING_STATS_SCOPE = "prior_completed_games_only"
+
+
+def upsert_team_batting_game_state(conn: sqlite3.Connection, row: dict[str, Any]) -> None:
+    conn.execute(
+        """
+        DELETE FROM team_batting_game_state
+        WHERE game_id = ? AND side = ? AND as_of_ts <> ?
+        """,
+        (row["game_id"], row["side"], row["as_of_ts"]),
+    )
+    conn.execute(
+        """
+        INSERT INTO team_batting_game_state (
+          game_id, team_id, side, as_of_ts, stats_scope,
+          season_games_in_sample, season_batting_avg, season_obp, season_slg, season_ops,
+          season_runs_scored_per_game, season_runs_allowed_per_game,
+          season_strikeouts_per_game, season_walks_per_game,
+          source_updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(game_id, side, as_of_ts) DO UPDATE SET
+          team_id = excluded.team_id,
+          stats_scope = excluded.stats_scope,
+          season_games_in_sample = excluded.season_games_in_sample,
+          season_batting_avg = excluded.season_batting_avg,
+          season_obp = excluded.season_obp,
+          season_slg = excluded.season_slg,
+          season_ops = excluded.season_ops,
+          season_runs_scored_per_game = excluded.season_runs_scored_per_game,
+          season_runs_allowed_per_game = excluded.season_runs_allowed_per_game,
+          season_strikeouts_per_game = excluded.season_strikeouts_per_game,
+          season_walks_per_game = excluded.season_walks_per_game,
+          source_updated_at = excluded.source_updated_at,
+          ingested_at = datetime('now')
+        """,
+        (
+            row["game_id"],
+            row["team_id"],
+            row["side"],
+            row["as_of_ts"],
+            row.get("stats_scope", BATTING_STATS_SCOPE),
+            row.get("season_games_in_sample", 0),
+            row.get("season_batting_avg"),
+            row.get("season_obp"),
+            row.get("season_slg"),
+            row.get("season_ops"),
+            row.get("season_runs_scored_per_game"),
+            row.get("season_runs_allowed_per_game"),
+            row.get("season_strikeouts_per_game"),
+            row.get("season_walks_per_game"),
+            row.get("source_updated_at") or utc_now(),
+        ),
+    )
+    conn.commit()
+
+
+def _build_team_batting_game_state_row(
+    game: sqlite3.Row,
+    side: str,
+    team_id: int,
+    batting_state: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Build a team_batting_game_state row using cumulative season stats *prior* to this game."""
+    state = batting_state or {}
+    n = int(state.get("games", 0) or 0)
+
+    def _season_avg(key: str) -> float | None:
+        total = state.get(f"total_{key}")
+        if total is None or n == 0:
+            return None
+        return _safe_round(float(total) / n, 4)
+
+    def _count_avg(key: str) -> float | None:
+        total = state.get(f"total_{key}")
+        if total is None or n == 0:
+            return None
+        return _safe_round(float(total) / n, 3)
+
+    return {
+        "game_id": int(game["game_id"]),
+        "team_id": team_id,
+        "side": side,
+        "as_of_ts": _feature_as_of_ts(game),
+        "stats_scope": BATTING_STATS_SCOPE,
+        "season_games_in_sample": n,
+        "season_batting_avg": _season_avg("batting_avg"),
+        "season_obp": _season_avg("obp"),
+        "season_slg": _season_avg("slg"),
+        "season_ops": _season_avg("ops"),
+        "season_runs_scored_per_game": _count_avg("runs_scored"),
+        "season_runs_allowed_per_game": _count_avg("runs_allowed"),
+        "season_strikeouts_per_game": _count_avg("strikeouts"),
+        "season_walks_per_game": _count_avg("walks"),
+        "source_updated_at": utc_now(),
+    }
+
+
+def _update_batting_team_state(
+    batting_states: dict[int, dict[str, Any]],
+    team_id: int,
+    team_stats_row: sqlite3.Row | None,
+    runs_scored: int,
+    runs_allowed: int,
+) -> None:
+    state = batting_states.setdefault(team_id, {
+        "games": 0,
+        "total_batting_avg": 0.0,
+        "total_obp": 0.0,
+        "total_slg": 0.0,
+        "total_ops": 0.0,
+        "total_runs_scored": 0,
+        "total_runs_allowed": 0,
+        "total_strikeouts": 0,
+        "total_walks": 0,
+    })
+    state["games"] += 1
+    state["total_runs_scored"] += runs_scored
+    state["total_runs_allowed"] += runs_allowed
+    if team_stats_row is not None:
+        for key in ("batting_avg", "obp", "slg", "ops"):
+            val = _to_float(team_stats_row[key])
+            if val is not None:
+                state[f"total_{key}"] = float(state.get(f"total_{key}", 0.0) or 0.0) + val
+        for key in ("strikeouts", "walks"):
+            val = team_stats_row[key]
+            if val is not None:
+                state[f"total_{key}"] = int(state.get(f"total_{key}", 0) or 0) + int(val)
 
 
 def upsert_team_bullpen_top_relievers(conn: sqlite3.Connection, row: dict[str, Any]) -> None:
@@ -3953,6 +4128,116 @@ def _rebuild_lineup_and_platoon_support_rows(
     return lineup_rows_upserted, platoon_rows_upserted
 
 
+def cmd_backfill_batting_support(args: argparse.Namespace) -> None:
+    season = validate_supported_season(args.season)
+    job_name = batting_support_job_name(season)
+    config = build_config(args)
+    partition_key = f"season={season}"
+    with connect_db(config.db_path) as conn:
+        ensure_schema(conn)
+        run_id = start_run(conn, "backfill", partition_key=f"{job_name}:{partition_key}", config=config)
+        last_game_id: int | None = None
+        rows_upserted = 0
+        try:
+            games = conn.execute(
+                """
+                SELECT game_id, season, game_date, scheduled_datetime, status, home_team_id, away_team_id
+                FROM games
+                WHERE season = ?
+                ORDER BY game_date, scheduled_datetime, game_id
+                """,
+                (season,),
+            ).fetchall()
+            # Load all team stats for season, keyed by (game_id, team_id)
+            team_stats_rows = conn.execute(
+                """
+                SELECT gts.game_id, gts.team_id, gts.side, gts.runs,
+                       gts.batting_avg, gts.obp, gts.slg, gts.ops,
+                       gts.strikeouts, gts.walks
+                FROM game_team_stats gts
+                INNER JOIN games g ON g.game_id = gts.game_id
+                WHERE g.season = ?
+                """,
+                (season,),
+            ).fetchall()
+            # Also load labels to get runs_allowed (opponent runs)
+            labels_map = {
+                int(row["game_id"]): row
+                for row in conn.execute(
+                    """
+                    SELECT l.game_id, l.home_score, l.away_score
+                    FROM labels l
+                    INNER JOIN games g ON g.game_id = l.game_id
+                    WHERE g.season = ?
+                    """,
+                    (season,),
+                ).fetchall()
+            }
+            # Index team stats: (game_id, side) -> row
+            team_stats_by_key: dict[tuple[int, str], sqlite3.Row] = {
+                (int(row["game_id"]), str(row["side"])): row for row in team_stats_rows
+            }
+
+            batting_states: dict[int, dict[str, Any]] = {}
+
+            for idx, game in enumerate(games, start=1):
+                home_team_id = _to_int(game["home_team_id"])
+                away_team_id = _to_int(game["away_team_id"])
+                game_id = int(game["game_id"])
+
+                for side, team_id in (("home", home_team_id), ("away", away_team_id)):
+                    if team_id is None:
+                        continue
+                    state_row = _build_team_batting_game_state_row(
+                        game, side, team_id, batting_states.get(team_id)
+                    )
+                    upsert_team_batting_game_state(conn, state_row)
+                    rows_upserted += 1
+
+                # After writing game state (pregame), update running totals with completed game result
+                if _is_completed_game(game["status"]):
+                    label = labels_map.get(game_id)
+                    home_score = int(label["home_score"] or 0) if label is not None else 0
+                    away_score = int(label["away_score"] or 0) if label is not None else 0
+                    if home_team_id is not None:
+                        _update_batting_team_state(
+                            batting_states,
+                            home_team_id,
+                            team_stats_by_key.get((game_id, "home")),
+                            home_score,
+                            away_score,
+                        )
+                    if away_team_id is not None:
+                        _update_batting_team_state(
+                            batting_states,
+                            away_team_id,
+                            team_stats_by_key.get((game_id, "away")),
+                            away_score,
+                            home_score,
+                        )
+
+                last_game_id = game_id
+                if config.checkpoint_every > 0 and idx % config.checkpoint_every == 0:
+                    upsert_checkpoint(
+                        conn,
+                        job_name=job_name,
+                        partition_key=partition_key,
+                        cursor={"season": season, "games_seen": idx, "rows_upserted": rows_upserted},
+                        status="running",
+                        last_game_id=last_game_id,
+                    )
+
+            stats = {"season": season, "games": len(games), "rows_upserted": rows_upserted}
+            upsert_checkpoint(conn, job_name=job_name, partition_key=partition_key, cursor=stats, status="done", last_game_id=last_game_id)
+            finish_run(conn, run_id, "success", note=json.dumps(stats))
+            print(f"Batting support complete for {partition_key}: {format_run_observability(stats)}")
+        except Exception as exc:
+            error = str(exc)
+            upsert_checkpoint(conn, job_name=job_name, partition_key=partition_key, cursor={"job": job_name}, status="failed", last_error=error)
+            finish_run(conn, run_id, "failed", note=error)
+            raise
+
+
 def cmd_backfill_lineup_support(args: argparse.Namespace) -> None:
     season = validate_supported_season(args.season)
     job_name = lineup_support_job_name(season)
@@ -4558,6 +4843,7 @@ def _build_v2_phase1_feature_payload(
     handedness_by_player: dict[int, sqlite3.Row],
     venue_by_id: dict[int, sqlite3.Row],
     weather_by_game_id: dict[int, list[sqlite3.Row]],
+    batting_by_key: dict[tuple[int, str], sqlite3.Row] | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     payload = dict(v1_payload)
     issues = list(v1_issues)
@@ -4677,6 +4963,47 @@ def _build_v2_phase1_feature_payload(
     payload.update(_build_v2_phase1_weather_block(venue_row, weather_row))
     if venue_id is not None and venue_row is None:
         payload["weather_exposed_flag"] = 0
+
+    # Season-to-date batting features
+    if batting_by_key is not None:
+        batting_blocks: dict[str, dict[str, Any]] = {}
+        for side in ("home", "away"):
+            brow = batting_by_key.get((game_id, side))
+            bblock: dict[str, Any] = {}
+            if brow is not None:
+                bblock[f"{side}_season_batting_available_flag"] = 1
+                bblock[f"{side}_season_games_batting_in_sample"] = int(brow["season_games_in_sample"] or 0)
+                for key in ("season_batting_avg", "season_obp", "season_slg", "season_ops",
+                            "season_runs_scored_per_game", "season_runs_allowed_per_game",
+                            "season_strikeouts_per_game", "season_walks_per_game"):
+                    bblock[f"{side}_{key}"] = _to_float(brow[key])
+            else:
+                bblock[f"{side}_season_batting_available_flag"] = 0
+                bblock[f"{side}_season_games_batting_in_sample"] = 0
+                for key in ("season_batting_avg", "season_obp", "season_slg", "season_ops",
+                            "season_runs_scored_per_game", "season_runs_allowed_per_game",
+                            "season_strikeouts_per_game", "season_walks_per_game"):
+                    bblock[f"{side}_{key}"] = None
+            batting_blocks[side] = bblock
+            payload.update(bblock)
+        # Delta features (home - away; higher ops/avg is better for home)
+        payload["season_ops_delta"] = _safe_delta(
+            batting_blocks["home"].get("home_season_ops"),
+            batting_blocks["away"].get("away_season_ops"),
+        )
+        payload["season_batting_avg_delta"] = _safe_delta(
+            batting_blocks["home"].get("home_season_batting_avg"),
+            batting_blocks["away"].get("away_season_batting_avg"),
+        )
+        payload["season_obp_delta"] = _safe_delta(
+            batting_blocks["home"].get("home_season_obp"),
+            batting_blocks["away"].get("away_season_obp"),
+        )
+        payload["season_runs_scored_per_game_delta"] = _safe_delta(
+            batting_blocks["home"].get("home_season_runs_scored_per_game"),
+            batting_blocks["away"].get("away_season_runs_scored_per_game"),
+        )
+
     return payload, sorted({_normalized_issue_token(issue) for issue in issues})
 
 
@@ -5095,6 +5422,8 @@ def cmd_materialize_feature_rows(args: argparse.Namespace) -> None:
             venue_by_id: dict[int, sqlite3.Row] = {}
             weather_by_game_id: dict[int, list[sqlite3.Row]] = {}
 
+            batting_by_key: dict[tuple[int, str], sqlite3.Row] = {}
+
             if args.feature_version == FEATURE_VERSION_V2_PHASE1:
                 bullpen_rows = conn.execute(
                     """
@@ -5153,6 +5482,16 @@ def cmd_materialize_feature_rows(args: argparse.Namespace) -> None:
                 ).fetchall()
                 for row in weather_rows:
                     weather_by_game_id.setdefault(int(row["game_id"]), []).append(row)
+                batting_rows = conn.execute(
+                    """
+                    SELECT team_batting_game_state.*
+                    FROM team_batting_game_state
+                    INNER JOIN games ON games.game_id = team_batting_game_state.game_id
+                    WHERE games.season = ?
+                    """,
+                    (season,),
+                ).fetchall()
+                batting_by_key = {(int(row["game_id"]), str(row["side"])): row for row in batting_rows}
 
             team_states: dict[int, dict[str, Any]] = {}
             rows_upserted = 0
@@ -5184,6 +5523,7 @@ def cmd_materialize_feature_rows(args: argparse.Namespace) -> None:
                         handedness_by_player=handedness_by_player,
                         venue_by_id=venue_by_id,
                         weather_by_game_id=weather_by_game_id,
+                        batting_by_key=batting_by_key if batting_by_key else None,
                     )
 
                 upsert_feature_row(
@@ -6136,6 +6476,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     lineup_support_incremental.add_argument("--date", help="YYYY-MM-DD; defaults to today")
     lineup_support_incremental.set_defaults(func=cmd_update_lineup_support)
+
+    batting_support = subparsers.add_parser(
+        "backfill-batting-support",
+        help="Build team_batting_game_state cumulative season batting stats from existing game_team_stats for one supported season",
+    )
+    batting_support.add_argument(
+        "--season",
+        type=int,
+        default=MIN_SUPPORTED_SEASON,
+        help=f"Season to process ({MIN_SUPPORTED_SEASON}-{MAX_SUPPORTED_SEASON})",
+    )
+    batting_support.set_defaults(func=cmd_backfill_batting_support)
 
     pitcher_context = subparsers.add_parser(
         "backfill-pitcher-context",

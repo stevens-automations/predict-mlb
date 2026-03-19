@@ -1,0 +1,523 @@
+{
+  "development": {
+    "aggregate": {
+      "accuracy": 0.5484958856063672,
+      "brier_score": 0.2537505488247188,
+      "calibration_bins": [
+        {
+          "avg_prediction": null,
+          "bin": 0,
+          "count": 0,
+          "empirical_rate": null,
+          "lower": 0.0,
+          "upper": 0.1
+        },
+        {
+          "avg_prediction": 0.18041428748208102,
+          "bin": 1,
+          "count": 15,
+          "empirical_rate": 0.4666666666666667,
+          "lower": 0.1,
+          "upper": 0.2
+        },
+        {
+          "avg_prediction": 0.2636496910760452,
+          "bin": 2,
+          "count": 220,
+          "empirical_rate": 0.41818181818181815,
+          "lower": 0.2,
+          "upper": 0.30000000000000004
+        },
+        {
+          "avg_prediction": 0.3586061865338694,
+          "bin": 3,
+          "count": 861,
+          "empirical_rate": 0.45993031358885017,
+          "lower": 0.30000000000000004,
+          "upper": 0.4
+        },
+        {
+          "avg_prediction": 0.4535449544097821,
+          "bin": 4,
+          "count": 1718,
+          "empirical_rate": 0.4790454016298021,
+          "lower": 0.4,
+          "upper": 0.5
+        },
+        {
+          "avg_prediction": 0.5503338668888057,
+          "bin": 5,
+          "count": 2176,
+          "empirical_rate": 0.5404411764705882,
+          "lower": 0.5,
+          "upper": 0.6000000000000001
+        },
+        {
+          "avg_prediction": 0.6445340583705835,
+          "bin": 6,
+          "count": 1556,
+          "empirical_rate": 0.5597686375321337,
+          "lower": 0.6000000000000001,
+          "upper": 0.7000000000000001
+        },
+        {
+          "avg_prediction": 0.7404086096760601,
+          "bin": 7,
+          "count": 732,
+          "empirical_rate": 0.5901639344262295,
+          "lower": 0.7000000000000001,
+          "upper": 0.8
+        },
+        {
+          "avg_prediction": 0.8277632020277339,
+          "bin": 8,
+          "count": 132,
+          "empirical_rate": 0.6666666666666666,
+          "lower": 0.8,
+          "upper": 0.9
+        },
+        {
+          "avg_prediction": 0.9080940129512031,
+          "bin": 9,
+          "count": 3,
+          "empirical_rate": 1.0,
+          "lower": 0.9,
+          "upper": 1.0
+        }
+      ],
+      "expected_calibration_error": 0.061281768171553244,
+      "log_loss": 0.7028518698012773,
+      "max_calibration_gap": 0.2862523791845857,
+      "prediction_summary": {
+        "count": 7413,
+        "max_probability": 0.910556493788374,
+        "mean_probability": 0.5400039013617548,
+        "min_probability": 0.13710520134815915
+      }
+    },
+    "fold_average": {
+      "accuracy": 0.5484962190384434,
+      "brier_score": 0.25375086091353816,
+      "log_loss": 0.7028528645743268
+    },
+    "folds": [
+      {
+        "fold": 1,
+        "metrics": {
+          "accuracy": 0.5550607287449393,
+          "brier_score": 0.2545217911220761,
+          "calibration_bins": [
+            {
+              "avg_prediction": null,
+              "bin": 0,
+              "count": 0,
+              "empirical_rate": null,
+              "lower": 0.0,
+              "upper": 0.1
+            },
+            {
+              "avg_prediction": 0.17994011715466446,
+              "bin": 1,
+              "count": 13,
+              "empirical_rate": 0.46153846153846156,
+              "lower": 0.1,
+              "upper": 0.2
+            },
+            {
+              "avg_prediction": 0.25628651221189164,
+              "bin": 2,
+              "count": 59,
+              "empirical_rate": 0.3559322033898305,
+              "lower": 0.2,
+              "upper": 0.30000000000000004
+            },
+            {
+              "avg_prediction": 0.3560106165152001,
+              "bin": 3,
+              "count": 250,
+              "empirical_rate": 0.436,
+              "lower": 0.30000000000000004,
+              "upper": 0.4
+            },
+            {
+              "avg_prediction": 0.4522991416970749,
+              "bin": 4,
+              "count": 477,
+              "empirical_rate": 0.4968553459119497,
+              "lower": 0.4,
+              "upper": 0.5
+            },
+            {
+              "avg_prediction": 0.551384757678918,
+              "bin": 5,
+              "count": 647,
+              "empirical_rate": 0.5409582689335394,
+              "lower": 0.5,
+              "upper": 0.6000000000000001
+            },
+            {
+              "avg_prediction": 0.6460782543194956,
+              "bin": 6,
+              "count": 563,
+              "empirical_rate": 0.5559502664298401,
+              "lower": 0.6000000000000001,
+              "upper": 0.7000000000000001
+            },
+            {
+              "avg_prediction": 0.7439143783351042,
+              "bin": 7,
+              "count": 366,
+              "empirical_rate": 0.6038251366120219,
+              "lower": 0.7000000000000001,
+              "upper": 0.8
+            },
+            {
+              "avg_prediction": 0.8302520024283955,
+              "bin": 8,
+              "count": 92,
+              "empirical_rate": 0.6304347826086957,
+              "lower": 0.8,
+              "upper": 0.9
+            },
+            {
+              "avg_prediction": 0.9080940129512031,
+              "bin": 9,
+              "count": 3,
+              "empirical_rate": 1.0,
+              "lower": 0.9,
+              "upper": 1.0
+            }
+          ],
+          "expected_calibration_error": 0.07214983384353277,
+          "log_loss": 0.7059640777362616,
+          "max_calibration_gap": 0.2815983443837971,
+          "prediction_summary": {
+            "count": 2470,
+            "max_probability": 0.910556493788374,
+            "mean_probability": 0.5644038844513632,
+            "min_probability": 0.13710520134815915
+          }
+        },
+        "n_test": 2470,
+        "n_train": 3417,
+        "test_end": "2022-11-05",
+        "test_start": "2022-04-07",
+        "train_end": "2021-11-02",
+        "train_start": "2020-07-23"
+      },
+      {
+        "fold": 2,
+        "metrics": {
+          "accuracy": 0.537838931606637,
+          "brier_score": 0.25452251491420824,
+          "calibration_bins": [
+            {
+              "avg_prediction": null,
+              "bin": 0,
+              "count": 0,
+              "empirical_rate": null,
+              "lower": 0.0,
+              "upper": 0.1
+            },
+            {
+              "avg_prediction": 0.18349639461028866,
+              "bin": 1,
+              "count": 2,
+              "empirical_rate": 0.5,
+              "lower": 0.1,
+              "upper": 0.2
+            },
+            {
+              "avg_prediction": 0.26385413417579073,
+              "bin": 2,
+              "count": 97,
+              "empirical_rate": 0.4536082474226804,
+              "lower": 0.2,
+              "upper": 0.30000000000000004
+            },
+            {
+              "avg_prediction": 0.3575760664417153,
+              "bin": 3,
+              "count": 313,
+              "empirical_rate": 0.4504792332268371,
+              "lower": 0.30000000000000004,
+              "upper": 0.4
+            },
+            {
+              "avg_prediction": 0.45414046223986476,
+              "bin": 4,
+              "count": 570,
+              "empirical_rate": 0.49298245614035086,
+              "lower": 0.4,
+              "upper": 0.5
+            },
+            {
+              "avg_prediction": 0.5485870051785312,
+              "bin": 5,
+              "count": 712,
+              "empirical_rate": 0.5140449438202247,
+              "lower": 0.5,
+              "upper": 0.6000000000000001
+            },
+            {
+              "avg_prediction": 0.6437741908311928,
+              "bin": 6,
+              "count": 536,
+              "empirical_rate": 0.5839552238805971,
+              "lower": 0.6000000000000001,
+              "upper": 0.7000000000000001
+            },
+            {
+              "avg_prediction": 0.7369189571882393,
+              "bin": 7,
+              "count": 215,
+              "empirical_rate": 0.5302325581395348,
+              "lower": 0.7000000000000001,
+              "upper": 0.8
+            },
+            {
+              "avg_prediction": 0.8240984804137366,
+              "bin": 8,
+              "count": 26,
+              "empirical_rate": 0.8076923076923077,
+              "lower": 0.8,
+              "upper": 0.9
+            },
+            {
+              "avg_prediction": null,
+              "bin": 9,
+              "count": 0,
+              "empirical_rate": null,
+              "lower": 0.9,
+              "upper": 1.0
+            }
+          ],
+          "expected_calibration_error": 0.06951794179749497,
+          "log_loss": 0.7040046908653756,
+          "max_calibration_gap": 0.31650360538971134,
+          "prediction_summary": {
+            "count": 2471,
+            "max_probability": 0.8658158877335611,
+            "mean_probability": 0.53106566828657,
+            "min_probability": 0.16909844490447767
+          }
+        },
+        "n_test": 2471,
+        "n_train": 5887,
+        "test_end": "2023-11-01",
+        "test_start": "2023-03-30",
+        "train_end": "2022-11-05",
+        "train_start": "2020-07-23"
+      },
+      {
+        "fold": 3,
+        "metrics": {
+          "accuracy": 0.5525889967637541,
+          "brier_score": 0.2522082767043301,
+          "calibration_bins": [
+            {
+              "avg_prediction": null,
+              "bin": 0,
+              "count": 0,
+              "empirical_rate": null,
+              "lower": 0.0,
+              "upper": 0.1
+            },
+            {
+              "avg_prediction": null,
+              "bin": 1,
+              "count": 0,
+              "empirical_rate": null,
+              "lower": 0.1,
+              "upper": 0.2
+            },
+            {
+              "avg_prediction": 0.27012776251838494,
+              "bin": 2,
+              "count": 64,
+              "empirical_rate": 0.421875,
+              "lower": 0.2,
+              "upper": 0.30000000000000004
+            },
+            {
+              "avg_prediction": 0.36186564993491477,
+              "bin": 3,
+              "count": 298,
+              "empirical_rate": 0.4899328859060403,
+              "lower": 0.30000000000000004,
+              "upper": 0.4
+            },
+            {
+              "avg_prediction": 0.4539247058267927,
+              "bin": 4,
+              "count": 671,
+              "empirical_rate": 0.45454545454545453,
+              "lower": 0.4,
+              "upper": 0.5
+            },
+            {
+              "avg_prediction": 0.551024000544268,
+              "bin": 5,
+              "count": 817,
+              "empirical_rate": 0.5630354957160343,
+              "lower": 0.5,
+              "upper": 0.6000000000000001
+            },
+            {
+              "avg_prediction": 0.643522913254338,
+              "bin": 6,
+              "count": 457,
+              "empirical_rate": 0.5361050328227571,
+              "lower": 0.6000000000000001,
+              "upper": 0.7000000000000001
+            },
+            {
+              "avg_prediction": 0.7368798941507052,
+              "bin": 7,
+              "count": 151,
+              "empirical_rate": 0.6423841059602649,
+              "lower": 0.7000000000000001,
+              "upper": 0.8
+            },
+            {
+              "avg_prediction": 0.8182141395350969,
+              "bin": 8,
+              "count": 14,
+              "empirical_rate": 0.6428571428571429,
+              "lower": 0.8,
+              "upper": 0.9
+            },
+            {
+              "avg_prediction": null,
+              "bin": 9,
+              "count": 0,
+              "empirical_rate": null,
+              "lower": 0.9,
+              "upper": 1.0
+            }
+          ],
+          "expected_calibration_error": 0.050129290773161084,
+          "log_loss": 0.6985898251213433,
+          "max_calibration_gap": 0.175356996677954,
+          "prediction_summary": {
+            "count": 2472,
+            "max_probability": 0.8627232719475405,
+            "mean_probability": 0.5245582766438941,
+            "min_probability": 0.20399314088374726
+          }
+        },
+        "n_test": 2472,
+        "n_train": 8358,
+        "test_end": "2024-10-30",
+        "test_start": "2024-03-20",
+        "train_end": "2023-11-01",
+        "train_start": "2020-07-23"
+      }
+    ]
+  },
+  "holdout": {
+    "holdout_season": 2025,
+    "metrics": {
+      "accuracy": 0.5244247073072265,
+      "brier_score": 0.25437498153828864,
+      "calibration_bins": [
+        {
+          "avg_prediction": null,
+          "bin": 0,
+          "count": 0,
+          "empirical_rate": null,
+          "lower": 0.0,
+          "upper": 0.1
+        },
+        {
+          "avg_prediction": 0.1900035445655385,
+          "bin": 1,
+          "count": 1,
+          "empirical_rate": 1.0,
+          "lower": 0.1,
+          "upper": 0.2
+        },
+        {
+          "avg_prediction": 0.2641573776471376,
+          "bin": 2,
+          "count": 56,
+          "empirical_rate": 0.5178571428571429,
+          "lower": 0.2,
+          "upper": 0.30000000000000004
+        },
+        {
+          "avg_prediction": 0.36254125111477215,
+          "bin": 3,
+          "count": 337,
+          "empirical_rate": 0.4807121661721068,
+          "lower": 0.30000000000000004,
+          "upper": 0.4
+        },
+        {
+          "avg_prediction": 0.45355719430769853,
+          "bin": 4,
+          "count": 734,
+          "empirical_rate": 0.5381471389645777,
+          "lower": 0.4,
+          "upper": 0.5
+        },
+        {
+          "avg_prediction": 0.5466276640574289,
+          "bin": 5,
+          "count": 754,
+          "empirical_rate": 0.5490716180371353,
+          "lower": 0.5,
+          "upper": 0.6000000000000001
+        },
+        {
+          "avg_prediction": 0.6429303908007227,
+          "bin": 6,
+          "count": 456,
+          "empirical_rate": 0.5526315789473685,
+          "lower": 0.6000000000000001,
+          "upper": 0.7000000000000001
+        },
+        {
+          "avg_prediction": 0.7359390476038707,
+          "bin": 7,
+          "count": 132,
+          "empirical_rate": 0.6893939393939394,
+          "lower": 0.7000000000000001,
+          "upper": 0.8
+        },
+        {
+          "avg_prediction": 0.8136607420566119,
+          "bin": 8,
+          "count": 7,
+          "empirical_rate": 0.14285714285714285,
+          "lower": 0.8,
+          "upper": 0.9
+        },
+        {
+          "avg_prediction": null,
+          "bin": 9,
+          "count": 0,
+          "empirical_rate": null,
+          "lower": 0.9,
+          "upper": 1.0
+        }
+      ],
+      "expected_calibration_error": 0.06894968915769124,
+      "log_loss": 0.7031560494107951,
+      "max_calibration_gap": 0.8099964554344615,
+      "prediction_summary": {
+        "count": 2477,
+        "max_probability": 0.8271589518901848,
+        "mean_probability": 0.5160449314989393,
+        "min_probability": 0.1900035445655385
+      }
+    },
+    "n_test": 2477,
+    "n_train": 10830,
+    "test_end": "2025-11-01",
+    "test_start": "2025-03-18",
+    "train_end": "2024-10-30",
+    "train_start": "2020-07-23"
+  },
+  "train_seconds": 7.977892333001364
+}

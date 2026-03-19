@@ -12,6 +12,8 @@ This is the practical map of what a user gets locally after running the historic
 - `labels.did_home_win` is the training target
 - `feature_rows.feature_payload_json` is the model input payload
 - all support tables exist to make that one-row-per-game payload point-in-time safe
+- direct team / starter / player / venue identities are allowed as metadata and join keys, but not as canonical game-winner model inputs
+- the preferred game-winner representation is comparative home-versus-away baseball state aligned to `did_home_win`
 
 If you want to understand the DB quickly, think in this order:
 
@@ -212,6 +214,11 @@ Why this matters:
 ### `feature_rows`
 **This is the table that matters most for training.**
 
+For the canonical game-winner model, training payloads should increasingly emphasize:
+- comparative home-edge baseball-state features
+- limited raw side-specific anchor features when absolute level or reliability matters
+- shared game-context fields that apply to the full game rather than one side
+
 One row per game per feature version.
 
 Columns:
@@ -268,6 +275,13 @@ In plain English: `v1` is the safe backbone.
    - lineup balance / handedness deltas
    - lineup-vs-hand deltas
    - top-3 quality / freshness deltas
+
+Comparative-field interpretation rule:
+- default orientation should be **home edge**
+- positive comparative values should mean the feature favors the home side whenever practical
+- for higher-is-better metrics, use `home_minus_away`
+- for lower-is-better metrics, transform to a home-edge interpretation rather than leaving mixed sign conventions
+- matchup-aware handedness / platoon features should reflect offense versus opposing starter/pitching context, not raw split stats in isolation
 
 In plain English: `v2_phase1` is the first full integrated feature store row, not just a baseline row with a few extras.
 

@@ -42,7 +42,7 @@ Output:
 
 ```json
 {
-  "db_path": "/Users/openclaw/.openclaw/workspace/projects/predict-mlb/data/predictions.db",
+  "db_path": "/Users/openclaw/.openclaw/projects/predict-mlb/data/predictions.db",
   "total_predictions_rows": 0,
   "pending_unsent_tweets_count": 0,
   "rows_with_null_accuracy": 0,

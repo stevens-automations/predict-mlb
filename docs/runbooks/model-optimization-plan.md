@@ -1,16 +1,16 @@
 # Model Optimization Plan
 
-Last updated: 2026-03-09
+Last updated: 2026-03-16
 
 ## Goal
 
-This is an older optimization-oriented runbook for the current scaffold. It remains useful as historical context and for gate ideas, but the canonical planning surface for the next training rebuild is now `docs/runbooks/training-manifest.md`.
+This is a supporting optimization runbook for the current scaffold. The canonical strategy surface remains `docs/runbooks/training-manifest.md`, and this file should stay aligned with the exploratory LightGBM-first integrated training phase.
 
 ## Canonical Files
 
 Note: the files below describe the current scaffold and gate surfaces, not the full externally researched strategy direction.
 
-- `configs/training/baseline_lgbm.json` — immediate baseline run
+- `configs/training/baseline_lgbm.json` — first active LightGBM baseline run
 - `configs/training/tuned_candidate.json` — first challenger tuned for stability
 - `configs/training/ensemble_candidate_placeholder.json` — disabled placeholder for later blend work
 - `configs/training/experiment_suite.json` — canonical multi-experiment entrypoint
@@ -18,26 +18,26 @@ Note: the files below describe the current scaffold and gate surfaces, not the f
 - `scripts/training/run_when_ready.py` — readiness gate + launch script
 - `docs/runbooks/training-architecture.md` — implementation details for the scaffold
 
-## Phase 1: Baseline Training (Immediate)
+## Phase 1: LightGBM Baseline And Challenger Runs
 
-Objective: establish the first reproducible 2020-2025 walk-forward baseline off `feature_rows + labels` with no new feature dependencies.
+Objective: establish the first reproducible 2020-2025 integrated baseline/challenger loop off `feature_rows + labels`.
 
 Scope:
-- Keep `feature_version='v1'`
+- Keep `feature_version='v2_phase1'`
 - Train on contract statuses `valid` and `degraded` only
-- Use walk-forward evaluation only
+- Use the canonical season-based development/holdout evaluation
 - Register artifacts and metrics under `artifacts/model_registry/`
 
 Baseline configuration:
 - Trainer: LightGBM binary classifier
 - Primary metric: log loss
-- Walk-forward window: `min_train_samples=1500`, `test_size=300`, `step_size=300` across the full eligible history
-- Output metrics: log loss, Brier, accuracy, expected calibration error, max calibration gap, calibration bins
+- Evaluation window: expanding development folds across `2020-2024`, untouched `2025` holdout
+- Output metrics: log loss, Brier, accuracy, and calibration bins
 
 Why this is first:
-- It matches the current inference contract most closely.
-- It avoids new ingestion dependencies while the multi-season backfill finishes.
-- It gives the team a stable incumbent reference before any uplift work.
+- It follows the PM direction to optimize models before freezing daily inference architecture.
+- It uses the strongest realistic integrated pregame contract already available in the historical DB.
+- It makes the benchmark/challenger comparison honest on the same canonical frame.
 
 ## Phase 2: Robustness and Stability Upgrades
 
@@ -45,7 +45,7 @@ Objective: improve consistency before chasing larger lifts.
 
 Priority sequence:
 1. Freeze the baseline feature set and split scheme so every challenger uses the same leakage-safe evaluation frame.
-2. Add promotion-gate review to every candidate run using `configs/training/promotion_gates.json`.
+2. Add promotion-gate review to every LightGBM candidate run using `configs/training/promotion_gates.json`.
 3. Keep degraded rows allowed, but monitor degraded share and block promotion if it rises above threshold.
 4. Add calibration review to the standard evaluation checklist before any threshold or ensemble policy changes.
 
@@ -54,14 +54,15 @@ Expected work in this phase:
 - Add light post-training governance helpers later if the team wants automatic gate pass/fail evaluation
 - Keep all candidate changes offline until they beat the incumbent on log loss without reliability regressions
 
-## Phase 3: Performance Lift Experiments
+## Phase 3: Benchmark And Performance Lift Experiments
 
 Objective: try higher-upside experiments only after the baseline loop is stable.
 
 Ordered experiments:
 1. Parameter tuning inside the existing LightGBM/tabular path
-2. Recency weighting and missingness-indicator variants, but only if train/inference parity can be maintained
-3. Conservative calibrated blend or simple ensemble, only after one single-model challenger clears gates
+2. Logistic regression benchmark on the same integrated contract/evaluation frame
+3. Recency weighting and missingness-indicator variants, but only if train/inference parity can be maintained
+4. Conservative calibrated blend or simple ensemble, only after one single-model challenger clears gates
 
 Rules:
 - No feature additions that the live inference path cannot reproduce reliably
@@ -69,9 +70,9 @@ Rules:
 - No experiments that require future information not available as-of each game
 - Keep the first ensemble track disabled until a single tuned model proves stable
 
-## Phase 4: Optional Uplift Feature Tracks
+## Phase 4: Optional Feature Refinement Tracks
 
-These are intentionally separate from the immediate training launch.
+These are intentionally downstream of the first integrated runs and should be justified by measured training uplift.
 
 ### Weather track
 
@@ -148,7 +149,7 @@ Promotion review template:
 | Train/inference parity review | pass/fail | pass/fail | must pass |
 | Promotion decision |  |  | go / no-go |
 
-## First Run After Ingestion Completes
+## First Runs After Readiness And Dependencies Are In Place
 
 Readiness check only:
 
@@ -162,7 +163,7 @@ Launch the baseline as soon as all 2020-2025 seasons are trainable:
 .venv/bin/python scripts/training/run_when_ready.py --action baseline --max-wait-seconds 3600 --poll-seconds 300
 ```
 
-Run the baseline plus tuned candidate suite after the baseline finishes:
+Run the LightGBM-first suite after the baseline finishes:
 
 ```bash
 .venv/bin/python scripts/training/run_when_ready.py --action suite
@@ -170,7 +171,8 @@ Run the baseline plus tuned candidate suite after the baseline finishes:
 
 ## Immediate Operating Notes
 
-- Do not start weather, roster, or injury features in the baseline window.
+- Do not weaken the canonical training contract back to `v1`.
 - Do not promote any challenger solely on accuracy.
 - Keep the first ensemble candidate as a placeholder until a single-model tuned candidate proves stable.
 - Treat the model registry output as the source of truth for promotion review.
+- Treat `scikit-learn` as a blocker only for the logistic benchmark path; LightGBM experiments still depend on a working local `lightgbm` install.

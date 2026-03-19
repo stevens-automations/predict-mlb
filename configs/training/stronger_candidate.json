@@ -1,32 +1,34 @@
 {
+  "contract": {
+    "name": "pregame_1h",
+    "target": "home_team_win_probability",
+    "label_column": "did_home_win",
+    "feature_version": "v2_phase1",
+    "sportsbook_odds_as_features": false
+  },
   "experiment": {
-    "name": "stronger_walk_forward_v1"
+    "name": "stronger_pregame_1h_v2_phase1_hybrid_comparative"
   },
   "data": {
     "db_path": "data/mlb_history.db",
-    "feature_version": "v1",
-    "seasons": [
-      2020,
-      2021,
-      2022
-    ],
+    "feature_version": "v2_phase1",
+    "feature_contract": "hybrid_comparative_v1",
+    "seasons": [2020, 2021, 2022, 2023, 2024, 2025],
     "contract_statuses": [
       "valid",
       "degraded"
     ]
   },
   "evaluation": {
-    "walk_forward": {
-      "min_train_samples": 750,
-      "test_size": 250,
-      "step_size": 250,
-      "gap": 0,
-      "max_splits": 6
+    "seasonal_holdout": {
+      "development_seasons": [2020, 2021, 2022, 2023, 2024],
+      "holdout_season": 2025,
+      "min_train_seasons": 2
     }
   },
   "model": {
     "trainer": "lgbm",
-    "name": "lgbm_stronger_placeholder",
+    "name": "lgbm_stronger_hybrid_comparative",
     "params": {
       "objective": "binary",
       "metric": "binary_logloss",
@@ -46,4 +48,3 @@
     "root_dir": "artifacts/model_registry"
   }
 }
-

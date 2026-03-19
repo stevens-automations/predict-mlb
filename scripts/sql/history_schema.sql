@@ -294,6 +294,27 @@ CREATE TABLE IF NOT EXISTS team_platoon_splits (
   FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS team_batting_game_state (
+  game_id INTEGER NOT NULL,
+  team_id INTEGER NOT NULL,
+  side TEXT NOT NULL CHECK(side IN ('home', 'away')),
+  as_of_ts TEXT NOT NULL,
+  stats_scope TEXT NOT NULL DEFAULT 'prior_completed_games_only',
+  season_games_in_sample INTEGER NOT NULL DEFAULT 0,
+  season_batting_avg REAL,
+  season_obp REAL,
+  season_slg REAL,
+  season_ops REAL,
+  season_runs_scored_per_game REAL,
+  season_runs_allowed_per_game REAL,
+  season_strikeouts_per_game REAL,
+  season_walks_per_game REAL,
+  source_updated_at TEXT,
+  ingested_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (game_id, side, as_of_ts),
+  FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS feature_rows (
   game_id INTEGER NOT NULL,
   feature_version TEXT NOT NULL,

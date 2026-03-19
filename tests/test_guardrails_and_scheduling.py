@@ -102,7 +102,7 @@ class TestScheduleDeduping(unittest.TestCase):
         stub_storage.WriteStats = object
         stub_storage.get_primary_storage = lambda: None
 
-        module_path = "/Users/openclaw/.openclaw/workspace/projects/predict-mlb/predict.py"
+        module_path = "/Users/openclaw/.openclaw/projects/predict-mlb/predict.py"
         spec = importlib.util.spec_from_file_location("predict_for_tests", module_path)
         module = importlib.util.module_from_spec(spec)
 

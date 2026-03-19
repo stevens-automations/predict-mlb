@@ -1,17 +1,23 @@
 {
   "base": {
+    "contract": {
+      "name": "pregame_1h",
+      "target": "home_team_win_probability",
+      "label_column": "did_home_win",
+      "feature_version": "v2_phase1",
+      "sportsbook_odds_as_features": false
+    },
     "data": {
       "db_path": "data/mlb_history.db",
       "seasons": [2020, 2021, 2022, 2023, 2024, 2025],
-      "feature_version": "v1",
+      "feature_version": "v2_phase1",
       "contract_statuses": ["valid", "degraded"]
     },
     "evaluation": {
-      "walk_forward": {
-        "min_train_samples": 1500,
-        "test_size": 300,
-        "step_size": 300,
-        "gap": 0
+      "seasonal_holdout": {
+        "development_seasons": [2020, 2021, 2022, 2023, 2024],
+        "holdout_season": 2025,
+        "min_train_seasons": 2
       }
     },
     "registry": {
@@ -21,7 +27,7 @@
   "experiments": [
     {
       "experiment": {
-        "name": "baseline_walk_forward_v1"
+        "name": "baseline_pregame_1h_v2_phase1_lgbm"
       },
       "model": {
         "name": "lgbm_baseline",
@@ -44,7 +50,7 @@
     },
     {
       "experiment": {
-        "name": "tuned_candidate_v1"
+        "name": "tuned_candidate_pregame_1h_v2_phase1"
       },
       "model": {
         "name": "lgbm_tuned_candidate",
@@ -69,7 +75,24 @@
     },
     {
       "experiment": {
-        "name": "ensemble_candidate_placeholder_v1"
+        "name": "benchmark_pregame_1h_v2_phase1_logreg"
+      },
+      "model": {
+        "name": "logreg_benchmark",
+        "trainer": "logreg",
+        "params": {
+          "C": 1.0,
+          "penalty": "l2",
+          "class_weight": "balanced",
+          "max_iter": 2000,
+          "solver": "lbfgs",
+          "random_state": 20260312
+        }
+      }
+    },
+    {
+      "experiment": {
+        "name": "ensemble_candidate_placeholder_pregame_1h_v2_phase1"
       },
       "execution": {
         "enabled": false,

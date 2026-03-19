@@ -6,7 +6,9 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from train.train_lgbm import run_from_config
+from train.config import MissingOptionalDependency, validate_training_config
+from train.train_lgbm import run_from_config as run_lgbm_from_config
+from train.train_logreg import run_from_config as run_logreg_from_config
 
 
 def _deep_merge(base: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
@@ -31,25 +33,49 @@ def load_experiment_config(path: str | Path) -> dict[str, Any]:
     return {"experiments": resolved}
 
 
+def _trainer_runner(trainer: str):
+    if trainer == "lgbm":
+        return run_lgbm_from_config
+    if trainer == "logreg":
+        return run_logreg_from_config
+    raise ValueError(f"Unsupported trainer: {trainer}")
+
+
 def run_experiments(path: str | Path) -> dict[str, Any]:
     loaded = load_experiment_config(path)
     results = []
+    seen_names: set[str] = set()
     for experiment in loaded["experiments"]:
+        experiment = validate_training_config(experiment)
+        experiment_name = experiment["experiment"]["name"]
+        if experiment_name in seen_names:
+            raise ValueError(f"Experiment names must be unique within a suite: {experiment_name}")
+        seen_names.add(experiment_name)
         execution = experiment.get("execution", {})
         if not execution.get("enabled", True):
             results.append(
                 {
                     "status": "skipped",
-                    "experiment_name": experiment["experiment"]["name"],
+                    "experiment_name": experiment_name,
                     "model_name": experiment["model"]["name"],
                     "reason": execution.get("reason", "disabled"),
                 }
             )
             continue
         trainer = experiment["model"].get("trainer", "lgbm")
-        if trainer != "lgbm":
-            raise ValueError(f"Unsupported trainer: {trainer}")
-        results.append(run_from_config(experiment))
+        try:
+            results.append(_trainer_runner(trainer)(experiment))
+        except MissingOptionalDependency as exc:
+            results.append(
+                {
+                    "status": "blocked",
+                    "experiment_name": experiment_name,
+                    "model_name": experiment["model"]["name"],
+                    "trainer": trainer,
+                    "dependency": exc.dependency,
+                    "reason": str(exc),
+                }
+            )
     return {"results": results}
 
 

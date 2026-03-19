@@ -1,0 +1,1624 @@
+{
+  "feature_importance": [
+    {
+      "feature": "home_team_season_run_diff_per_game",
+      "gain": 2062.720129966736,
+      "gain_rank": 1,
+      "gain_share": 0.02673715319864458,
+      "split": 178,
+      "split_rank": 19,
+      "split_share": 0.01695238095238095
+    },
+    {
+      "feature": "away_starter_strike_pct",
+      "gain": 2029.3957304954529,
+      "gain_rank": 2,
+      "gain_share": 0.0263051995075101,
+      "split": 271,
+      "split_rank": 1,
+      "split_share": 0.02580952380952381
+    },
+    {
+      "feature": "away_team_season_win_pct",
+      "gain": 1895.165503501892,
+      "gain_rank": 3,
+      "gain_share": 0.02456529592540197,
+      "split": 171,
+      "split_rank": 22,
+      "split_share": 0.016285714285714285
+    },
+    {
+      "feature": "home_starter_runs_per_9",
+      "gain": 1745.1945343017578,
+      "gain_rank": 4,
+      "gain_share": 0.022621359508338032,
+      "split": 207,
+      "split_rank": 10,
+      "split_share": 0.019714285714285715
+    },
+    {
+      "feature": "home_starter_strike_pct",
+      "gain": 1713.0865015983582,
+      "gain_rank": 5,
+      "gain_share": 0.02220517246637043,
+      "split": 239,
+      "split_rank": 2,
+      "split_share": 0.02276190476190476
+    },
+    {
+      "feature": "away_team_season_run_diff_per_game",
+      "gain": 1702.6118829250336,
+      "gain_rank": 6,
+      "gain_share": 0.022069399571105874,
+      "split": 171,
+      "split_rank": 23,
+      "split_share": 0.016285714285714285
+    },
+    {
+      "feature": "home_starter_whip",
+      "gain": 1619.1317026615143,
+      "gain_rank": 7,
+      "gain_share": 0.020987322397217928,
+      "split": 210,
+      "split_rank": 9,
+      "split_share": 0.02
+    },
+    {
+      "feature": "pressure_hpa",
+      "gain": 1588.0152876377106,
+      "gain_rank": 8,
+      "gain_share": 0.020583988787680963,
+      "split": 227,
+      "split_rank": 3,
+      "split_share": 0.021619047619047618
+    },
+    {
+      "feature": "home_starter_avg_allowed",
+      "gain": 1519.179915189743,
+      "gain_rank": 9,
+      "gain_share": 0.019691738854260888,
+      "split": 211,
+      "split_rank": 8,
+      "split_share": 0.020095238095238097
+    },
+    {
+      "feature": "away_starter_avg_allowed",
+      "gain": 1501.021966457367,
+      "gain_rank": 10,
+      "gain_share": 0.019456373983390837,
+      "split": 212,
+      "split_rank": 6,
+      "split_share": 0.02019047619047619
+    },
+    {
+      "feature": "wind_direction_deg",
+      "gain": 1455.924831867218,
+      "gain_rank": 11,
+      "gain_share": 0.01887182110157252,
+      "split": 217,
+      "split_rank": 4,
+      "split_share": 0.020666666666666667
+    },
+    {
+      "feature": "away_top3_freshness_score",
+      "gain": 1455.8048830032349,
+      "gain_rank": 12,
+      "gain_share": 0.018870266314228504,
+      "split": 205,
+      "split_rank": 12,
+      "split_share": 0.019523809523809523
+    },
+    {
+      "feature": "temperature_f",
+      "gain": 1451.8413300514221,
+      "gain_rank": 13,
+      "gain_share": 0.01881889040484362,
+      "split": 213,
+      "split_rank": 5,
+      "split_share": 0.020285714285714285
+    },
+    {
+      "feature": "wind_speed_mph",
+      "gain": 1437.3200392723083,
+      "gain_rank": 14,
+      "gain_share": 0.018630664202673626,
+      "split": 206,
+      "split_rank": 11,
+      "split_share": 0.01961904761904762
+    },
+    {
+      "feature": "away_top3_quality_dropoff_vs_team",
+      "gain": 1430.6107397079468,
+      "gain_rank": 15,
+      "gain_share": 0.018543697692917003,
+      "split": 212,
+      "split_rank": 7,
+      "split_share": 0.02019047619047619
+    },
+    {
+      "feature": "home_starter_era",
+      "gain": 1425.5911219120026,
+      "gain_rank": 16,
+      "gain_share": 0.018478632981491043,
+      "split": 172,
+      "split_rank": 20,
+      "split_share": 0.01638095238095238
+    },
+    {
+      "feature": "away_starter_whip",
+      "gain": 1373.6913979053497,
+      "gain_rank": 17,
+      "gain_share": 0.017805904358943674,
+      "split": 190,
+      "split_rank": 15,
+      "split_share": 0.018095238095238095
+    },
+    {
+      "feature": "away_starter_runs_per_9",
+      "gain": 1351.865403175354,
+      "gain_rank": 18,
+      "gain_share": 0.01752299396488158,
+      "split": 179,
+      "split_rank": 18,
+      "split_share": 0.017047619047619048
+    },
+    {
+      "feature": "away_top3_k_minus_bb_rate_season",
+      "gain": 1296.7444183826447,
+      "gain_rank": 19,
+      "gain_share": 0.016808511086932165,
+      "split": 181,
+      "split_rank": 17,
+      "split_share": 0.017238095238095236
+    },
+    {
+      "feature": "humidity_pct",
+      "gain": 1281.0268547534943,
+      "gain_rank": 20,
+      "gain_share": 0.016604778694661957,
+      "split": 192,
+      "split_rank": 13,
+      "split_share": 0.018285714285714287
+    },
+    {
+      "feature": "home_team_rolling_last10_hits_per_game",
+      "gain": 1273.8247475624084,
+      "gain_rank": 21,
+      "gain_share": 0.016511424370668316,
+      "split": 192,
+      "split_rank": 14,
+      "split_share": 0.018285714285714287
+    },
+    {
+      "feature": "bullpen_whip_delta",
+      "gain": 1254.486809849739,
+      "gain_rank": 22,
+      "gain_share": 0.01626076438259818,
+      "split": 125,
+      "split_rank": 48,
+      "split_share": 0.011904761904761904
+    },
+    {
+      "feature": "top3_freshness_delta",
+      "gain": 1249.413264632225,
+      "gain_rank": 23,
+      "gain_share": 0.016195000659361955,
+      "split": 183,
+      "split_rank": 16,
+      "split_share": 0.01742857142857143
+    },
+    {
+      "feature": "away_starter_era",
+      "gain": 1240.4423851966858,
+      "gain_rank": 24,
+      "gain_share": 0.01607871935958211,
+      "split": 172,
+      "split_rank": 21,
+      "split_share": 0.01638095238095238
+    },
+    {
+      "feature": "wind_gust_mph",
+      "gain": 1202.4349417686462,
+      "gain_rank": 25,
+      "gain_share": 0.015586063655659397,
+      "split": 162,
+      "split_rank": 27,
+      "split_share": 0.015428571428571429
+    },
+    {
+      "feature": "home_top3_quality_dropoff_vs_team",
+      "gain": 1173.1518986225128,
+      "gain_rank": 26,
+      "gain_share": 0.015206494367831041,
+      "split": 171,
+      "split_rank": 24,
+      "split_share": 0.016285714285714285
+    },
+    {
+      "feature": "away_bullpen_whip_season",
+      "gain": 1162.3749589920044,
+      "gain_rank": 27,
+      "gain_share": 0.015066802762689197,
+      "split": 166,
+      "split_rank": 25,
+      "split_share": 0.015809523809523808
+    },
+    {
+      "feature": "home_team_rolling_last10_ops",
+      "gain": 1161.4388015270233,
+      "gain_rank": 28,
+      "gain_share": 0.015054668210262223,
+      "split": 153,
+      "split_rank": 34,
+      "split_share": 0.014571428571428572
+    },
+    {
+      "feature": "home_top3_freshness_score",
+      "gain": 1154.3757708072662,
+      "gain_rank": 29,
+      "gain_share": 0.014963116607280618,
+      "split": 161,
+      "split_rank": 28,
+      "split_share": 0.015333333333333332
+    },
+    {
+      "feature": "top3_quality_delta",
+      "gain": 1115.0645229816437,
+      "gain_rank": 30,
+      "gain_share": 0.014453560880222047,
+      "split": 155,
+      "split_rank": 31,
+      "split_share": 0.014761904761904763
+    },
+    {
+      "feature": "away_team_rolling_last10_runs_for_per_game",
+      "gain": 1102.0446696281433,
+      "gain_rank": 31,
+      "gain_share": 0.014284796437252249,
+      "split": 165,
+      "split_rank": 26,
+      "split_share": 0.015714285714285715
+    },
+    {
+      "feature": "away_team_rolling_last10_runs_against_per_game",
+      "gain": 1093.0143576860428,
+      "gain_rank": 32,
+      "gain_share": 0.014167744768283766,
+      "split": 158,
+      "split_rank": 30,
+      "split_share": 0.015047619047619048
+    },
+    {
+      "feature": "bullpen_k_minus_bb_rate_delta",
+      "gain": 1080.0214693546295,
+      "gain_rank": 33,
+      "gain_share": 0.013999329848216311,
+      "split": 147,
+      "split_rank": 36,
+      "split_share": 0.014
+    },
+    {
+      "feature": "bullpen_hr_rate_delta",
+      "gain": 1070.991188287735,
+      "gain_rank": 34,
+      "gain_share": 0.013882278579454866,
+      "split": 144,
+      "split_rank": 37,
+      "split_share": 0.013714285714285714
+    },
+    {
+      "feature": "home_top3_k_minus_bb_rate_season",
+      "gain": 1054.8023669719696,
+      "gain_rank": 35,
+      "gain_share": 0.013672437705098303,
+      "split": 154,
+      "split_rank": 33,
+      "split_share": 0.014666666666666666
+    },
+    {
+      "feature": "home_bullpen_hr_rate_season",
+      "gain": 1054.4260404109955,
+      "gain_rank": 36,
+      "gain_share": 0.01366755972831061,
+      "split": 161,
+      "split_rank": 29,
+      "split_share": 0.015333333333333332
+    },
+    {
+      "feature": "away_team_rolling_last10_ops",
+      "gain": 1020.8562097549438,
+      "gain_rank": 37,
+      "gain_share": 0.013232424737351908,
+      "split": 136,
+      "split_rank": 43,
+      "split_share": 0.012952380952380953
+    },
+    {
+      "feature": "bullpen_pitches_last3d_delta",
+      "gain": 1014.9613289833069,
+      "gain_rank": 38,
+      "gain_share": 0.013156014793031667,
+      "split": 141,
+      "split_rank": 39,
+      "split_share": 0.013428571428571429
+    },
+    {
+      "feature": "home_team_rolling_last10_runs_against_per_game",
+      "gain": 1012.0765120983124,
+      "gain_rank": 39,
+      "gain_share": 0.013118621551998343,
+      "split": 152,
+      "split_rank": 35,
+      "split_share": 0.014476190476190476
+    },
+    {
+      "feature": "away_bullpen_pitches_last3d",
+      "gain": 1010.5647532939911,
+      "gain_rank": 40,
+      "gain_share": 0.013099026006212308,
+      "split": 155,
+      "split_rank": 32,
+      "split_share": 0.014761904761904763
+    },
+    {
+      "feature": "home_bullpen_pitches_last3d",
+      "gain": 977.9500503540039,
+      "gain_rank": 41,
+      "gain_share": 0.012676271461683389,
+      "split": 141,
+      "split_rank": 40,
+      "split_share": 0.013428571428571429
+    },
+    {
+      "feature": "home_bullpen_k_minus_bb_rate_season",
+      "gain": 965.6882677078247,
+      "gain_rank": 42,
+      "gain_share": 0.012517333195489875,
+      "split": 140,
+      "split_rank": 41,
+      "split_share": 0.013333333333333334
+    },
+    {
+      "feature": "cloud_cover_pct",
+      "gain": 964.9499688148499,
+      "gain_rank": 43,
+      "gain_share": 0.012507763302647369,
+      "split": 137,
+      "split_rank": 42,
+      "split_share": 0.013047619047619047
+    },
+    {
+      "feature": "home_bullpen_whip_season",
+      "gain": 959.0358319282532,
+      "gain_rank": 44,
+      "gain_share": 0.012431103758932518,
+      "split": 136,
+      "split_rank": 44,
+      "split_share": 0.012952380952380953
+    },
+    {
+      "feature": "home_team_season_win_pct",
+      "gain": 958.8930807113647,
+      "gain_rank": 45,
+      "gain_share": 0.012429253405556997,
+      "split": 115,
+      "split_rank": 53,
+      "split_share": 0.010952380952380953
+    },
+    {
+      "feature": "away_bullpen_hr_rate_season",
+      "gain": 949.6785929203033,
+      "gain_rank": 46,
+      "gain_share": 0.012309814433620158,
+      "split": 143,
+      "split_rank": 38,
+      "split_share": 0.01361904761904762
+    },
+    {
+      "feature": "away_bullpen_k_minus_bb_rate_season",
+      "gain": 939.6805787086487,
+      "gain_rank": 47,
+      "gain_share": 0.012180219325793511,
+      "split": 124,
+      "split_rank": 49,
+      "split_share": 0.01180952380952381
+    },
+    {
+      "feature": "away_freshness_score",
+      "gain": 932.9445118904114,
+      "gain_rank": 48,
+      "gain_share": 0.012092905856622866,
+      "split": 116,
+      "split_rank": 52,
+      "split_share": 0.011047619047619047
+    },
+    {
+      "feature": "home_team_rolling_last10_runs_for_per_game",
+      "gain": 908.289600610733,
+      "gain_rank": 49,
+      "gain_share": 0.011773326806412899,
+      "split": 129,
+      "split_rank": 46,
+      "split_share": 0.012285714285714285
+    },
+    {
+      "feature": "away_team_rolling_last10_hits_per_game",
+      "gain": 898.859081029892,
+      "gain_rank": 50,
+      "gain_share": 0.011651087612102116,
+      "split": 127,
+      "split_rank": 47,
+      "split_share": 0.012095238095238095
+    },
+    {
+      "feature": "bullpen_freshness_delta",
+      "gain": 879.9131293296814,
+      "gain_rank": 51,
+      "gain_share": 0.011405508579957402,
+      "split": 136,
+      "split_rank": 45,
+      "split_share": 0.012952380952380953
+    },
+    {
+      "feature": "away_bullpen_era_season",
+      "gain": 859.2653303146362,
+      "gain_rank": 52,
+      "gain_share": 0.01113787005863799,
+      "split": 122,
+      "split_rank": 50,
+      "split_share": 0.011619047619047619
+    },
+    {
+      "feature": "home_team_rolling_last10_batting_avg",
+      "gain": 815.1900823116302,
+      "gain_rank": 53,
+      "gain_share": 0.010566562957396082,
+      "split": 120,
+      "split_rank": 51,
+      "split_share": 0.011428571428571429
+    },
+    {
+      "feature": "home_bullpen_era_season",
+      "gain": 802.7074077129364,
+      "gain_rank": 54,
+      "gain_share": 0.010404761470987216,
+      "split": 112,
+      "split_rank": 54,
+      "split_share": 0.010666666666666666
+    },
+    {
+      "feature": "bullpen_era_delta",
+      "gain": 793.577898979187,
+      "gain_rank": 55,
+      "gain_share": 0.010286424004795642,
+      "split": 103,
+      "split_rank": 57,
+      "split_share": 0.00980952380952381
+    },
+    {
+      "feature": "away_team_rolling_last10_obp",
+      "gain": 783.9107608795166,
+      "gain_rank": 56,
+      "gain_share": 0.010161117741183666,
+      "split": 110,
+      "split_rank": 55,
+      "split_share": 0.010476190476190476
+    },
+    {
+      "feature": "away_team_rolling_last10_batting_avg",
+      "gain": 760.7503085136414,
+      "gain_rank": 57,
+      "gain_share": 0.009860909994112179,
+      "split": 108,
+      "split_rank": 56,
+      "split_share": 0.010285714285714285
+    },
+    {
+      "feature": "home_freshness_score",
+      "gain": 733.3036110401154,
+      "gain_rank": 58,
+      "gain_share": 0.009505143574574522,
+      "split": 98,
+      "split_rank": 59,
+      "split_share": 0.009333333333333334
+    },
+    {
+      "feature": "away_bullpen_appearances_season",
+      "gain": 710.8637616634369,
+      "gain_rank": 59,
+      "gain_share": 0.009214276344540539,
+      "split": 101,
+      "split_rank": 58,
+      "split_share": 0.009619047619047619
+    },
+    {
+      "feature": "hour_offset_from_first_pitch",
+      "gain": 682.6563587188721,
+      "gain_rank": 60,
+      "gain_share": 0.00884864959619592,
+      "split": 95,
+      "split_rank": 60,
+      "split_share": 0.009047619047619047
+    },
+    {
+      "feature": "home_team_rolling_last10_obp",
+      "gain": 667.2300810813904,
+      "gain_rank": 61,
+      "gain_share": 0.008648692877644469,
+      "split": 95,
+      "split_rank": 61,
+      "split_share": 0.009047619047619047
+    },
+    {
+      "feature": "home_bullpen_appearances_season",
+      "gain": 586.8125002384186,
+      "gain_rank": 62,
+      "gain_share": 0.007606313377087795,
+      "split": 73,
+      "split_rank": 64,
+      "split_share": 0.006952380952380952
+    },
+    {
+      "feature": "bullpen_outs_last3d_delta",
+      "gain": 580.2002720832825,
+      "gain_rank": 63,
+      "gain_share": 0.007520605115167106,
+      "split": 81,
+      "split_rank": 63,
+      "split_share": 0.007714285714285714
+    },
+    {
+      "feature": "away_bullpen_outs_last3d",
+      "gain": 549.1811985969543,
+      "gain_rank": 64,
+      "gain_share": 0.007118533254891353,
+      "split": 82,
+      "split_rank": 62,
+      "split_share": 0.00780952380952381
+    },
+    {
+      "feature": "home_bullpen_outs_last3d",
+      "gain": 463.1963195800781,
+      "gain_rank": 65,
+      "gain_share": 0.006003989963418159,
+      "split": 71,
+      "split_rank": 65,
+      "split_share": 0.0067619047619047615
+    },
+    {
+      "feature": "away_season_games_in_sample",
+      "gain": 426.30484092235565,
+      "gain_rank": 66,
+      "gain_share": 0.005525799489457953,
+      "split": 61,
+      "split_rank": 66,
+      "split_share": 0.0058095238095238096
+    },
+    {
+      "feature": "away_team_rolling_last10_win_pct",
+      "gain": 356.1072111129761,
+      "gain_rank": 67,
+      "gain_share": 0.00461589186062932,
+      "split": 50,
+      "split_rank": 67,
+      "split_share": 0.004761904761904762
+    },
+    {
+      "feature": "home_season_games_in_sample",
+      "gain": 325.52378368377686,
+      "gain_rank": 68,
+      "gain_share": 0.004219466881479427,
+      "split": 46,
+      "split_rank": 69,
+      "split_share": 0.004380952380952381
+    },
+    {
+      "feature": "home_team_rolling_last10_win_pct",
+      "gain": 315.32940912246704,
+      "gain_rank": 69,
+      "gain_share": 0.004087326534153442,
+      "split": 48,
+      "split_rank": 68,
+      "split_share": 0.004571428571428572
+    },
+    {
+      "feature": "away_relievers_back_to_back_count",
+      "gain": 227.91996932029724,
+      "gain_rank": 70,
+      "gain_share": 0.0029543179650093556,
+      "split": 35,
+      "split_rank": 70,
+      "split_share": 0.0033333333333333335
+    },
+    {
+      "feature": "home_team_season_games",
+      "gain": 190.33071947097778,
+      "gain_rank": 71,
+      "gain_share": 0.002467082921707776,
+      "split": 26,
+      "split_rank": 71,
+      "split_share": 0.002476190476190476
+    },
+    {
+      "feature": "away_team_season_games",
+      "gain": 173.143620967865,
+      "gain_rank": 72,
+      "gain_share": 0.0022443022938165203,
+      "split": 23,
+      "split_rank": 72,
+      "split_share": 0.0021904761904761906
+    },
+    {
+      "feature": "precipitation_mm",
+      "gain": 132.43575072288513,
+      "gain_rank": 73,
+      "gain_share": 0.0017166434285548894,
+      "split": 19,
+      "split_rank": 74,
+      "split_share": 0.0018095238095238095
+    },
+    {
+      "feature": "bullpen_high_usage_delta",
+      "gain": 123.91328835487366,
+      "gain_rank": 74,
+      "gain_share": 0.0016061745488203999,
+      "split": 19,
+      "split_rank": 75,
+      "split_share": 0.0018095238095238095
+    },
+    {
+      "feature": "home_high_usage_relievers_last3d_count",
+      "gain": 123.84884929656982,
+      "gain_rank": 75,
+      "gain_share": 0.0016053392842836284,
+      "split": 19,
+      "split_rank": 76,
+      "split_share": 0.0018095238095238095
+    },
+    {
+      "feature": "away_opposing_starter_pitch_hand_l_flag",
+      "gain": 120.06854057312012,
+      "gain_rank": 76,
+      "gain_share": 0.001556338602121925,
+      "split": 17,
+      "split_rank": 78,
+      "split_share": 0.0016190476190476191
+    },
+    {
+      "feature": "away_high_usage_relievers_last3d_count",
+      "gain": 113.04022169113159,
+      "gain_rank": 77,
+      "gain_share": 0.0014652369369242892,
+      "split": 19,
+      "split_rank": 77,
+      "split_share": 0.0018095238095238095
+    },
+    {
+      "feature": "home_relievers_back_to_back_count",
+      "gain": 104.25839066505432,
+      "gain_rank": 78,
+      "gain_share": 0.001351406098655103,
+      "split": 20,
+      "split_rank": 73,
+      "split_share": 0.0019047619047619048
+    },
+    {
+      "feature": "bullpen_back_to_back_delta",
+      "gain": 93.7862982749939,
+      "gain_rank": 79,
+      "gain_share": 0.0012156659492883924,
+      "split": 13,
+      "split_rank": 79,
+      "split_share": 0.001238095238095238
+    },
+    {
+      "feature": "home_opposing_starter_pitch_hand_r_flag",
+      "gain": 54.9376106262207,
+      "gain_rank": 80,
+      "gain_share": 0.000712105966457231,
+      "split": 8,
+      "split_rank": 81,
+      "split_share": 0.0007619047619047619
+    },
+    {
+      "feature": "roof_closed_or_fixed_flag",
+      "gain": 52.397709608078,
+      "gain_rank": 81,
+      "gain_share": 0.0006791835541314396,
+      "split": 9,
+      "split_rank": 80,
+      "split_share": 0.0008571428571428571
+    },
+    {
+      "feature": "home_team_days_rest",
+      "gain": 51.42948913574219,
+      "gain_rank": 82,
+      "gain_share": 0.0006666333982848856,
+      "split": 8,
+      "split_rank": 82,
+      "split_share": 0.0007619047619047619
+    },
+    {
+      "feature": "away_opposing_starter_pitch_hand_r_flag",
+      "gain": 43.90260982513428,
+      "gain_rank": 83,
+      "gain_share": 0.000569069350544353,
+      "split": 5,
+      "split_rank": 84,
+      "split_share": 0.0004761904761904762
+    },
+    {
+      "feature": "home_opposing_starter_pitch_hand_l_flag",
+      "gain": 39.93080925941467,
+      "gain_rank": 84,
+      "gain_share": 0.0005175865348887843,
+      "split": 6,
+      "split_rank": 83,
+      "split_share": 0.0005714285714285715
+    },
+    {
+      "feature": "away_team_days_rest",
+      "gain": 27.558870315551758,
+      "gain_rank": 85,
+      "gain_share": 0.0003572204134258236,
+      "split": 3,
+      "split_rank": 86,
+      "split_share": 0.00028571428571428574
+    },
+    {
+      "feature": "away_bullpen_fatigue_flag",
+      "gain": 25.617109775543213,
+      "gain_rank": 86,
+      "gain_share": 0.0003320511486869719,
+      "split": 4,
+      "split_rank": 85,
+      "split_share": 0.00038095238095238096
+    },
+    {
+      "feature": "is_day",
+      "gain": 19.494800090789795,
+      "gain_rank": 87,
+      "gain_share": 0.0002526932515138652,
+      "split": 3,
+      "split_rank": 87,
+      "split_share": 0.00028571428571428574
+    },
+    {
+      "feature": "extreme_temp_flag",
+      "gain": 18.305689811706543,
+      "gain_rank": 88,
+      "gain_share": 0.00023727990326557683,
+      "split": 2,
+      "split_rank": 89,
+      "split_share": 0.00019047619047619048
+    },
+    {
+      "feature": "away_team_doubleheader_flag",
+      "gain": 12.659450054168701,
+      "gain_rank": 89,
+      "gain_share": 0.00016409286484946284,
+      "split": 3,
+      "split_rank": 88,
+      "split_share": 0.00028571428571428574
+    },
+    {
+      "feature": "home_bullpen_fatigue_flag",
+      "gain": 7.834229946136475,
+      "gain_rank": 90,
+      "gain_share": 0.00010154795273493448,
+      "split": 1,
+      "split_rank": 90,
+      "split_share": 9.523809523809524e-05
+    },
+    {
+      "feature": "weather_exposed_flag",
+      "gain": 6.5645599365234375,
+      "gain_rank": 91,
+      "gain_share": 8.509038242979776e-05,
+      "split": 1,
+      "split_rank": 91,
+      "split_share": 9.523809523809524e-05
+    },
+    {
+      "feature": "away_announced_lineup_count",
+      "gain": 0.0,
+      "gain_rank": 92,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 92,
+      "split_share": 0.0
+    },
+    {
+      "feature": "away_bullpen_available_flag",
+      "gain": 0.0,
+      "gain_rank": 93,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 93,
+      "split_share": 0.0
+    },
+    {
+      "feature": "away_bullpen_low_sample_flag",
+      "gain": 0.0,
+      "gain_rank": 94,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 94,
+      "split_share": 0.0
+    },
+    {
+      "feature": "away_lineup_balance_score",
+      "gain": 0.0,
+      "gain_rank": 95,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 95,
+      "split_share": 0.0
+    },
+    {
+      "feature": "away_lineup_known_flag",
+      "gain": 0.0,
+      "gain_rank": 96,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 96,
+      "split_share": 0.0
+    },
+    {
+      "feature": "away_lineup_lefty_pa_share_proxy",
+      "gain": 0.0,
+      "gain_rank": 97,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 97,
+      "split_share": 0.0
+    },
+    {
+      "feature": "away_lineup_partial_flag",
+      "gain": 0.0,
+      "gain_rank": 98,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 98,
+      "split_share": 0.0
+    },
+    {
+      "feature": "away_lineup_quality_available_flag",
+      "gain": 0.0,
+      "gain_rank": 99,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 99,
+      "split_share": 0.0
+    },
+    {
+      "feature": "away_lineup_quality_mean",
+      "gain": 0.0,
+      "gain_rank": 100,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 100,
+      "split_share": 0.0
+    },
+    {
+      "feature": "away_lineup_righty_pa_share_proxy",
+      "gain": 0.0,
+      "gain_rank": 101,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 101,
+      "split_share": 0.0
+    },
+    {
+      "feature": "away_lineup_status_missing_flag",
+      "gain": 0.0,
+      "gain_rank": 102,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 102,
+      "split_share": 0.0
+    },
+    {
+      "feature": "away_lineup_switch_pa_share_proxy",
+      "gain": 0.0,
+      "gain_rank": 103,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 103,
+      "split_share": 0.0
+    },
+    {
+      "feature": "away_lineup_vs_opp_starter_hand_quality",
+      "gain": 0.0,
+      "gain_rank": 104,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 104,
+      "split_share": 0.0
+    },
+    {
+      "feature": "away_platoon_available_flag",
+      "gain": 0.0,
+      "gain_rank": 105,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 105,
+      "split_share": 0.0
+    },
+    {
+      "feature": "away_platoon_games_in_sample",
+      "gain": 0.0,
+      "gain_rank": 106,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 106,
+      "split_share": 0.0
+    },
+    {
+      "feature": "away_platoon_low_sample_flag",
+      "gain": 0.0,
+      "gain_rank": 107,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 107,
+      "split_share": 0.0
+    },
+    {
+      "feature": "away_platoon_ops",
+      "gain": 0.0,
+      "gain_rank": 108,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 108,
+      "split_share": 0.0
+    },
+    {
+      "feature": "away_platoon_plate_appearances",
+      "gain": 0.0,
+      "gain_rank": 109,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 109,
+      "split_share": 0.0
+    },
+    {
+      "feature": "away_platoon_runs_per_game",
+      "gain": 0.0,
+      "gain_rank": 110,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 110,
+      "split_share": 0.0
+    },
+    {
+      "feature": "away_platoon_strikeout_rate",
+      "gain": 0.0,
+      "gain_rank": 111,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 111,
+      "split_share": 0.0
+    },
+    {
+      "feature": "away_platoon_walk_rate",
+      "gain": 0.0,
+      "gain_rank": 112,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 112,
+      "split_share": 0.0
+    },
+    {
+      "feature": "away_starter_career_era",
+      "gain": 0.0,
+      "gain_rank": 113,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 113,
+      "split_share": 0.0
+    },
+    {
+      "feature": "away_starter_known",
+      "gain": 0.0,
+      "gain_rank": 114,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 114,
+      "split_share": 0.0
+    },
+    {
+      "feature": "away_starter_stats_available",
+      "gain": 0.0,
+      "gain_rank": 115,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 115,
+      "split_share": 0.0
+    },
+    {
+      "feature": "away_starter_win_pct",
+      "gain": 0.0,
+      "gain_rank": 116,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 116,
+      "split_share": 0.0
+    },
+    {
+      "feature": "away_team_rolling_available",
+      "gain": 0.0,
+      "gain_rank": 117,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 117,
+      "split_share": 0.0
+    },
+    {
+      "feature": "away_team_rolling_games",
+      "gain": 0.0,
+      "gain_rank": 118,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 118,
+      "split_share": 0.0
+    },
+    {
+      "feature": "away_team_strength_available",
+      "gain": 0.0,
+      "gain_rank": 119,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 119,
+      "split_share": 0.0
+    },
+    {
+      "feature": "away_top3_availability_flag",
+      "gain": 0.0,
+      "gain_rank": 120,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 120,
+      "split_share": 0.0
+    },
+    {
+      "feature": "away_top3_availability_low_flag",
+      "gain": 0.0,
+      "gain_rank": 121,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 121,
+      "split_share": 0.0
+    },
+    {
+      "feature": "away_top3_l_count",
+      "gain": 0.0,
+      "gain_rank": 122,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 122,
+      "split_share": 0.0
+    },
+    {
+      "feature": "away_top3_lineup_quality_mean",
+      "gain": 0.0,
+      "gain_rank": 123,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 123,
+      "split_share": 0.0
+    },
+    {
+      "feature": "away_top3_n_available",
+      "gain": 0.0,
+      "gain_rank": 124,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 124,
+      "split_share": 0.0
+    },
+    {
+      "feature": "away_top3_r_count",
+      "gain": 0.0,
+      "gain_rank": 125,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 125,
+      "split_share": 0.0
+    },
+    {
+      "feature": "away_top3_s_count",
+      "gain": 0.0,
+      "gain_rank": 126,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 126,
+      "split_share": 0.0
+    },
+    {
+      "feature": "home_announced_lineup_count",
+      "gain": 0.0,
+      "gain_rank": 127,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 127,
+      "split_share": 0.0
+    },
+    {
+      "feature": "home_bullpen_available_flag",
+      "gain": 0.0,
+      "gain_rank": 128,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 128,
+      "split_share": 0.0
+    },
+    {
+      "feature": "home_bullpen_low_sample_flag",
+      "gain": 0.0,
+      "gain_rank": 129,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 129,
+      "split_share": 0.0
+    },
+    {
+      "feature": "home_field_advantage",
+      "gain": 0.0,
+      "gain_rank": 130,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 130,
+      "split_share": 0.0
+    },
+    {
+      "feature": "home_lineup_balance_score",
+      "gain": 0.0,
+      "gain_rank": 131,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 131,
+      "split_share": 0.0
+    },
+    {
+      "feature": "home_lineup_known_flag",
+      "gain": 0.0,
+      "gain_rank": 132,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 132,
+      "split_share": 0.0
+    },
+    {
+      "feature": "home_lineup_lefty_pa_share_proxy",
+      "gain": 0.0,
+      "gain_rank": 133,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 133,
+      "split_share": 0.0
+    },
+    {
+      "feature": "home_lineup_partial_flag",
+      "gain": 0.0,
+      "gain_rank": 134,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 134,
+      "split_share": 0.0
+    },
+    {
+      "feature": "home_lineup_quality_available_flag",
+      "gain": 0.0,
+      "gain_rank": 135,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 135,
+      "split_share": 0.0
+    },
+    {
+      "feature": "home_lineup_quality_mean",
+      "gain": 0.0,
+      "gain_rank": 136,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 136,
+      "split_share": 0.0
+    },
+    {
+      "feature": "home_lineup_righty_pa_share_proxy",
+      "gain": 0.0,
+      "gain_rank": 137,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 137,
+      "split_share": 0.0
+    },
+    {
+      "feature": "home_lineup_status_missing_flag",
+      "gain": 0.0,
+      "gain_rank": 138,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 138,
+      "split_share": 0.0
+    },
+    {
+      "feature": "home_lineup_switch_pa_share_proxy",
+      "gain": 0.0,
+      "gain_rank": 139,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 139,
+      "split_share": 0.0
+    },
+    {
+      "feature": "home_lineup_vs_opp_starter_hand_quality",
+      "gain": 0.0,
+      "gain_rank": 140,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 140,
+      "split_share": 0.0
+    },
+    {
+      "feature": "home_platoon_available_flag",
+      "gain": 0.0,
+      "gain_rank": 141,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 141,
+      "split_share": 0.0
+    },
+    {
+      "feature": "home_platoon_games_in_sample",
+      "gain": 0.0,
+      "gain_rank": 142,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 142,
+      "split_share": 0.0
+    },
+    {
+      "feature": "home_platoon_low_sample_flag",
+      "gain": 0.0,
+      "gain_rank": 143,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 143,
+      "split_share": 0.0
+    },
+    {
+      "feature": "home_platoon_ops",
+      "gain": 0.0,
+      "gain_rank": 144,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 144,
+      "split_share": 0.0
+    },
+    {
+      "feature": "home_platoon_plate_appearances",
+      "gain": 0.0,
+      "gain_rank": 145,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 145,
+      "split_share": 0.0
+    },
+    {
+      "feature": "home_platoon_runs_per_game",
+      "gain": 0.0,
+      "gain_rank": 146,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 146,
+      "split_share": 0.0
+    },
+    {
+      "feature": "home_platoon_strikeout_rate",
+      "gain": 0.0,
+      "gain_rank": 147,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 147,
+      "split_share": 0.0
+    },
+    {
+      "feature": "home_platoon_walk_rate",
+      "gain": 0.0,
+      "gain_rank": 148,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 148,
+      "split_share": 0.0
+    },
+    {
+      "feature": "home_starter_career_era",
+      "gain": 0.0,
+      "gain_rank": 149,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 149,
+      "split_share": 0.0
+    },
+    {
+      "feature": "home_starter_known",
+      "gain": 0.0,
+      "gain_rank": 150,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 150,
+      "split_share": 0.0
+    },
+    {
+      "feature": "home_starter_stats_available",
+      "gain": 0.0,
+      "gain_rank": 151,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 151,
+      "split_share": 0.0
+    },
+    {
+      "feature": "home_starter_win_pct",
+      "gain": 0.0,
+      "gain_rank": 152,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 152,
+      "split_share": 0.0
+    },
+    {
+      "feature": "home_team_doubleheader_flag",
+      "gain": 0.0,
+      "gain_rank": 153,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 153,
+      "split_share": 0.0
+    },
+    {
+      "feature": "home_team_rolling_available",
+      "gain": 0.0,
+      "gain_rank": 154,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 154,
+      "split_share": 0.0
+    },
+    {
+      "feature": "home_team_rolling_games",
+      "gain": 0.0,
+      "gain_rank": 155,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 155,
+      "split_share": 0.0
+    },
+    {
+      "feature": "home_team_strength_available",
+      "gain": 0.0,
+      "gain_rank": 156,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 156,
+      "split_share": 0.0
+    },
+    {
+      "feature": "home_top3_availability_flag",
+      "gain": 0.0,
+      "gain_rank": 157,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 157,
+      "split_share": 0.0
+    },
+    {
+      "feature": "home_top3_availability_low_flag",
+      "gain": 0.0,
+      "gain_rank": 158,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 158,
+      "split_share": 0.0
+    },
+    {
+      "feature": "home_top3_l_count",
+      "gain": 0.0,
+      "gain_rank": 159,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 159,
+      "split_share": 0.0
+    },
+    {
+      "feature": "home_top3_lineup_quality_mean",
+      "gain": 0.0,
+      "gain_rank": 160,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 160,
+      "split_share": 0.0
+    },
+    {
+      "feature": "home_top3_n_available",
+      "gain": 0.0,
+      "gain_rank": 161,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 161,
+      "split_share": 0.0
+    },
+    {
+      "feature": "home_top3_r_count",
+      "gain": 0.0,
+      "gain_rank": 162,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 162,
+      "split_share": 0.0
+    },
+    {
+      "feature": "home_top3_s_count",
+      "gain": 0.0,
+      "gain_rank": 163,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 163,
+      "split_share": 0.0
+    },
+    {
+      "feature": "lineup_balance_delta",
+      "gain": 0.0,
+      "gain_rank": 164,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 164,
+      "split_share": 0.0
+    },
+    {
+      "feature": "lineup_lefty_share_delta",
+      "gain": 0.0,
+      "gain_rank": 165,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 165,
+      "split_share": 0.0
+    },
+    {
+      "feature": "lineup_quality_delta",
+      "gain": 0.0,
+      "gain_rank": 166,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 166,
+      "split_share": 0.0
+    },
+    {
+      "feature": "lineup_righty_share_delta",
+      "gain": 0.0,
+      "gain_rank": 167,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 167,
+      "split_share": 0.0
+    },
+    {
+      "feature": "lineup_vs_opp_hand_ops_delta",
+      "gain": 0.0,
+      "gain_rank": 168,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 168,
+      "split_share": 0.0
+    },
+    {
+      "feature": "lineup_vs_opp_hand_runs_per_game_delta",
+      "gain": 0.0,
+      "gain_rank": 169,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 169,
+      "split_share": 0.0
+    },
+    {
+      "feature": "lineup_vs_opp_hand_strikeout_rate_delta",
+      "gain": 0.0,
+      "gain_rank": 170,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 170,
+      "split_share": 0.0
+    },
+    {
+      "feature": "lineup_vs_opp_hand_walk_rate_delta",
+      "gain": 0.0,
+      "gain_rank": 171,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 171,
+      "split_share": 0.0
+    },
+    {
+      "feature": "opposing_starter_hand_known_flag_away_offense",
+      "gain": 0.0,
+      "gain_rank": 172,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 172,
+      "split_share": 0.0
+    },
+    {
+      "feature": "opposing_starter_hand_known_flag_home_offense",
+      "gain": 0.0,
+      "gain_rank": 173,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 173,
+      "split_share": 0.0
+    },
+    {
+      "feature": "roof_type",
+      "gain": 0.0,
+      "gain_rank": 174,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 174,
+      "split_share": 0.0
+    },
+    {
+      "feature": "top3_lefty_count_delta",
+      "gain": 0.0,
+      "gain_rank": 175,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 175,
+      "split_share": 0.0
+    },
+    {
+      "feature": "top3_lineup_quality_delta",
+      "gain": 0.0,
+      "gain_rank": 176,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 176,
+      "split_share": 0.0
+    },
+    {
+      "feature": "weather_available_flag",
+      "gain": 0.0,
+      "gain_rank": 177,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 177,
+      "split_share": 0.0
+    },
+    {
+      "feature": "weather_forecast_flag",
+      "gain": 0.0,
+      "gain_rank": 178,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 178,
+      "split_share": 0.0
+    },
+    {
+      "feature": "weather_observed_archive_flag",
+      "gain": 0.0,
+      "gain_rank": 179,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 179,
+      "split_share": 0.0
+    },
+    {
+      "feature": "windy_flag",
+      "gain": 0.0,
+      "gain_rank": 180,
+      "gain_share": 0.0,
+      "split": 0,
+      "split_rank": 180,
+      "split_share": 0.0
+    }
+  ]
+}

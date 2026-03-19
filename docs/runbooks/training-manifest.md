@@ -1,6 +1,6 @@
 # Training Manifest
 
-Last updated: 2026-03-12
+Last updated: 2026-03-16
 
 ## Purpose
 
@@ -24,6 +24,11 @@ Build a high-accuracy MLB pregame prediction system that:
 
 Primary prediction target for the first serious rebuild:
 - **pregame home win probability**
+
+Canonical representation policy for that target:
+- model the game as **home-versus-away baseball state**, not as team identity lookup
+- direct team / starter / player / venue identities are metadata only, not canonical model inputs
+- comparative engineered features should be aligned to `did_home_win`, with positive values meaning a home-side edge whenever practical
 
 Secondary targets for later phases:
 - run differential / run line support
@@ -100,6 +105,17 @@ The model should therefore be built directly around the best information availab
 - weather / roof / park context
 - team true-talent and rolling form priors
 
+The preferred feature representation is:
+- **comparative home-edge features** as the backbone for winner prediction
+- a limited set of raw `home_*` / `away_*` anchor features where absolute level or reliability matters
+- shared game-context features (weather, roof, schedule timing, etc.) kept separately rather than forced into side deltas
+
+Current challenger implementation note:
+- the active stronger challenger contract is `data.feature_contract='hybrid_comparative_v1'` in `configs/training/stronger_candidate.json`
+- it drops direct identity inputs and placeholder-grade lineup-quality proxies from the model matrix
+- it keeps starter, bullpen, top-reliever, team-form, platoon, and lineup-structure families in explicit positive=`home edge` comparative form wherever the current payload already supports them truthfully
+- it also restores a limited raw-anchor layer for absolute starter level, baseline bullpen quality / top-arm freshness, and team season-plus-rolling quality, while preserving the existing availability, sample-size, and degraded-context flags
+
 The goal is not to intentionally narrow the first serious model. The goal is to train on the **strongest realistic pregame_1h feature set** we can support while preserving train/inference parity.
 
 ## Signal Families We Should Treat As Serious Candidates
@@ -141,6 +157,7 @@ Should likely be modeled through:
 - regressed lineup-vs-hand quality
 - batter-hand mix versus opposing starter hand
 - eventual interaction with likely bullpen hand mix
+- matchup-aware offense-versus-opposing-hand summaries
 - not naive raw split stats alone
 
 ### 6) Park / weather / roof block
@@ -189,6 +206,11 @@ That model should combine:
 - explicit uncertainty / fallback indicators for lineup, starter, and weather inputs
 
 The first serious build should target the **full integrated pregame feature set**, not an intentionally weakened subset. Simpler feature subsets can still be used later as ablations or benchmarks, but not as the planned main model direction.
+
+Implementation note:
+- The canonical training configs and code path now target `v2_phase1` as the main integrated `pregame_1h` contract.
+- The canonical non-fitting scaffolding is also locked to the same contract: no sportsbook-derived features, `2020-2024` development folds, `2025` untouched holdout, and train/inference parity checks before fitting.
+- If any season still lacks `v2_phase1` feature rows, the correct next step is historical materialization/backfill, not reverting the baseline architecture to `v1`.
 
 ## How To Think About The Market
 
@@ -257,6 +279,21 @@ Before rebuilding training code, future agents should:
 4. then produce the implementation spec/config changes from that mapping
 
 Do **not** create new mini-strategy docs if the update belongs here.
+
+## Feature Representation Rules
+
+- Direct team identity is metadata only, never a canonical game-winner model input.
+- Prefer comparative features aligned to the home-win label over mirrored raw side features when the task is inherently matchup-based.
+- Default sign convention: positive comparative values should mean a home-side edge.
+- For higher-is-better metrics, use `home_minus_away`; for lower-is-better metrics, transform to a home-edge orientation so positive still means the home side is advantaged whenever practical.
+- Contextual features such as handedness / platoon must be matchup-aware.
+- Separate signal from reliability: keep sample-size, availability, and missingness/degraded flags alongside the corresponding signal blocks.
+- If a richer support block is still placeholder-grade, exclude it from the active challenger contract until it is truthfully populated.
+
+Current architecture TODO:
+- Keep lineup proxies on historical actual lineups, historical weather proxies on observed archive weather, and bullpen features strictly on prior completed games.
+- Add post-hoc calibration model selection after the first honest logistic-vs-LightGBM baseline run is producing stable dev and 2025 holdout outputs.
+- Audit the current `v2_phase1` payload against the comparative home-edge policy before further LightGBM challenger training.
 
 ## Related Canonical Files
 

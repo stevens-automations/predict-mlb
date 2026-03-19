@@ -55,21 +55,22 @@ class TestTrainingReadiness(unittest.TestCase):
                 ) VALUES (?, ?, ?, ?, ?)
                 """,
                 [
-                    (1, "v1", "2020-07-24T12:00:00Z", json.dumps({"game_id": 1}), "valid"),
-                    (2, "v1", "2021-04-01T12:00:00Z", json.dumps({"game_id": 2}), "degraded"),
+                    (1, "v2_phase1", "2020-07-24T12:00:00Z", json.dumps({"game_id": 1}), "valid"),
+                    (2, "v2_phase1", "2021-04-01T12:00:00Z", json.dumps({"game_id": 2}), "degraded"),
                 ],
             )
 
         report = build_training_readiness_report(
             db_path=db_path,
             required_seasons=[2020, 2021],
-            feature_version="v1",
+            feature_version="v2_phase1",
             allowed_contract_statuses=["valid", "degraded"],
         )
 
         self.assertTrue(report["ready"])
         self.assertEqual(report["totals"]["trainable_games"], 2)
         self.assertAlmostEqual(report["totals"]["degraded_feature_share"], 0.5)
+        self.assertEqual(report["totals"]["missing_feature_games"], 0)
 
     def test_report_is_not_ready_when_labeled_games_are_missing_feature_rows(self) -> None:
         db_path = self._make_db()
@@ -88,18 +89,19 @@ class TestTrainingReadiness(unittest.TestCase):
                   game_id, feature_version, as_of_ts, feature_payload_json, source_contract_status
                 ) VALUES (?, ?, ?, ?, ?)
                 """,
-                (1, "v1", "2020-07-24T12:00:00Z", json.dumps({"game_id": 1}), "valid"),
+                (1, "v2_phase1", "2020-07-24T12:00:00Z", json.dumps({"game_id": 1}), "valid"),
             )
 
         report = build_training_readiness_report(
             db_path=db_path,
             required_seasons=[2020, 2021],
-            feature_version="v1",
+            feature_version="v2_phase1",
             allowed_contract_statuses=["valid", "degraded"],
         )
 
         self.assertFalse(report["ready"])
         self.assertIn("required seasons still missing feature_rows for labeled games: [2021]", report["reasons"])
+        self.assertEqual(report["totals"]["missing_feature_games"], 1)
 
 
 if __name__ == "__main__":

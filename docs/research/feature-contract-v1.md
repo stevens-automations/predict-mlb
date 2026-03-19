@@ -5,13 +5,13 @@ Scope: Daily MLB game winner prediction for seasons 2020-2025 historical backfil
 
 ## Objective
 
-Define the canonical pregame feature contract for predicting `did_home_win` for each MLB game. This contract is meant to replace ad hoc feature assembly from [`data.py`](/Users/openclaw/.openclaw/workspace/projects/predict-mlb/data.py) and the legacy notebook flow in [`legacy/notebooks/mlb-predict.ipynb`](/Users/openclaw/.openclaw/workspace/projects/predict-mlb/legacy/notebooks/mlb-predict.ipynb) with a point-in-time safe feature store backed by the current historical schema in [`scripts/sql/history_schema.sql`](/Users/openclaw/.openclaw/workspace/projects/predict-mlb/scripts/sql/history_schema.sql).
+Define the canonical pregame feature contract for predicting `did_home_win` for each MLB game. This contract is meant to replace ad hoc feature assembly from [`data.py`](/Users/openclaw/.openclaw/projects/predict-mlb/data.py) and the legacy notebook flow in [`legacy/notebooks/mlb-predict.ipynb`](/Users/openclaw/.openclaw/projects/predict-mlb/legacy/notebooks/mlb-predict.ipynb) with a point-in-time safe feature store backed by the current historical schema in [`scripts/sql/history_schema.sql`](/Users/openclaw/.openclaw/projects/predict-mlb/scripts/sql/history_schema.sql).
 
 The current repo state matters:
 
-- Legacy training used a 44-feature home/away row from [`data.py`](/Users/openclaw/.openclaw/workspace/projects/predict-mlb/data.py) and [`legacy/notebooks/mlb-predict.ipynb`](/Users/openclaw/.openclaw/workspace/projects/predict-mlb/legacy/notebooks/mlb-predict.ipynb).
-- Historical ingestion in [`scripts/history_ingest.py`](/Users/openclaw/.openclaw/workspace/projects/predict-mlb/scripts/history_ingest.py) now materializes `games`, `labels`, `game_team_stats`, parity-safe `game_pitcher_context`, and `feature_rows(feature_version='v1')`; newer support tables for pitcher appearances and bullpen state are implemented separately for the next feature wave.
-- Existing research in [`docs/research/model-data-feasibility-audit-2026-03-09.md`](/Users/openclaw/.openclaw/workspace/projects/predict-mlb/docs/research/model-data-feasibility-audit-2026-03-09.md) already concluded that legacy parity cannot be trusted unless we enforce as-of snapshots and leakage guardrails.
+- Legacy training used a 44-feature home/away row from [`data.py`](/Users/openclaw/.openclaw/projects/predict-mlb/data.py) and [`legacy/notebooks/mlb-predict.ipynb`](/Users/openclaw/.openclaw/projects/predict-mlb/legacy/notebooks/mlb-predict.ipynb).
+- Historical ingestion in [`scripts/history_ingest.py`](/Users/openclaw/.openclaw/projects/predict-mlb/scripts/history_ingest.py) now materializes `games`, `labels`, `game_team_stats`, parity-safe `game_pitcher_context`, and `feature_rows(feature_version='v1')`; newer support tables for pitcher appearances and bullpen state are implemented separately for the next feature wave.
+- Existing research in [`docs/research/model-data-feasibility-audit-2026-03-09.md`](/Users/openclaw/.openclaw/projects/predict-mlb/docs/research/model-data-feasibility-audit-2026-03-09.md) already concluded that legacy parity cannot be trusted unless we enforce as-of snapshots and leakage guardrails.
 
 Canonical output of this contract:
 
@@ -381,7 +381,7 @@ These are explicitly not V1 inputs.
 
 #### 8. Team top-5 leader features
 
-Legacy examples from [`data.py`](/Users/openclaw/.openclaw/workspace/projects/predict-mlb/data.py):
+Legacy examples from [`data.py`](/Users/openclaw/.openclaw/projects/predict-mlb/data.py):
 
 - `home-top5-hr-avg`
 - `home-top5-rbi-avg`
@@ -507,7 +507,7 @@ Canonical storage target:
 
 Status:
 
-- Already partially present through [`scripts/history_ingest.py`](/Users/openclaw/.openclaw/workspace/projects/predict-mlb/scripts/history_ingest.py)
+- Already partially present through [`scripts/history_ingest.py`](/Users/openclaw/.openclaw/projects/predict-mlb/scripts/history_ingest.py)
 
 Action:
 
@@ -596,7 +596,7 @@ Rules:
    - season backfill budget
    - same-day morning budget
    - near-first-pitch refresh budget
-8. Preserve bounded retries and checkpointing already present in [`scripts/history_ingest.py`](/Users/openclaw/.openclaw/workspace/projects/predict-mlb/scripts/history_ingest.py).
+8. Preserve bounded retries and checkpointing already present in [`scripts/history_ingest.py`](/Users/openclaw/.openclaw/projects/predict-mlb/scripts/history_ingest.py).
 
 Expected minimum external pull pattern:
 

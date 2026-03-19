@@ -1,66 +1,131 @@
 # predict-mlb
 
-`predict-mlb` is a historical MLB rebuild, feature materialization, and offline training repo.
+> ML-powered MLB game prediction bot. Predicts daily game outcomes using LightGBM trained on historical MLB data (2020–2025). Tweets predictions with win probabilities before each game.
 
-The canonical local system is the SQLite historical database at `data/mlb_history.db`, built and maintained through `scripts/history_ingest.py`. Training reads from that database, primarily through `feature_rows + labels`, with `feature_rows(feature_version='v1')` as the current stable baseline contract.
+---
 
-## Current Phase
+## 1. Overview
 
-The historical DB has already been recovered and promoted. The repo is now in post-promotion stabilization:
+`predict-mlb` runs a daily pipeline that:
+- Ingests yesterday's MLB game results into a local SQLite database
+- Fetches today's game schedule and live betting odds
+- Generates pre-game win probability predictions using a trained LightGBM model
+- Posts predictions to Twitter with confidence tiers and probabilities
+- Evaluates prior-day predictions against final scores each evening
 
-1. Protect the canonical DB workflow.
-2. Finish the durable rebuild path / CLI.
-3. Clean up one-off scripts and artifacts.
-4. Keep the canonical docs compact and current.
-5. Cut a clean checkpoint before the next serious training pass.
+**Current model:** LightGBM v4 tuned (`matchup_lgbm_v4_tuned_final`)
+**Accuracy:** ~57% on 2025 holdout season
 
-## Start Here
+---
 
-Read in this order:
+## 2. Architecture
 
-1. `README.md`
-2. `docs/README.md`
-3. `docs/STATUS.md`
-4. `docs/PLAN.md`
-5. `docs/runbooks/historical-ingestion-runbook.md`
+```
+Raw historical data (statsapi)
+    └─► Layer 1: games, game_team_stats, game_pitcher_appearances,
+                 game_lineup_snapshots, game_weather_snapshots
+    └─► Layer 2 (engineered): team_pregame_stats, starter_pregame_stats,
+                               bullpen_pregame_stats, lineup_pregame_context,
+                               team_vs_hand_pregame_stats
+    └─► game_matchup_features (flat training/inference row)
+    └─► LightGBM model → win probability → tweet
+```
 
-## Canonical Architecture
+The database (`data/mlb_history.db`) stores all layers. The model is pre-trained and stored in `artifacts/model_registry/`. No retraining is required to run daily predictions.
 
-- Historical schema: `scripts/sql/history_schema.sql`
-- Historical ingest / rebuild entrypoint: `scripts/history_ingest.py`
-- Preferred multi-season rebuild command: `python scripts/history_ingest.py rebuild-history ...`
-- Canonical DB: `data/mlb_history.db`
-- Stable training baseline: `feature_rows(feature_version='v1')`
-- Training package: `train/`
-- Training CLIs: `scripts/training/train_lgbm.py`, `scripts/training/experiment_runner.py`, `scripts/training/run_when_ready.py`
-- Training configs: `configs/training/`
-- Local model artifacts: `artifacts/model_registry/`
-- Demoted legacy surfaces: `legacy/` and `scripts/legacy_runtime/`
+---
 
-The older runtime prediction / tweeting flow still exists in the repo, but it is no longer the primary architectural center or the canonical source of truth for historical rebuild and training work. Clear legacy artifacts have been moved under `legacy/` and `scripts/legacy_runtime/` so the active rebuild/training surface is easier to scan.
+## 3. Setup
 
-## Working Rules
+### Prerequisites
+- Python 3.12
+- macOS or Linux (arm64 or x86_64)
 
-- Treat `data/mlb_history.db` as protected canonical state, not a scratch database.
-- Use `scripts/history_ingest.py` as the primary historical DB interface.
-- Prefer `rebuild-history` for full rebuild orchestration and narrower subcommands for targeted repair/backfill work.
-- Mutating the canonical DB requires explicit opt-in with `--allow-canonical-writes`.
-- Prefer scratch DB paths for rebuild validation and workflow testing.
-- Preserve train / inference parity for approved feature families.
-- Keep `feature_rows(feature_version='v1')` as the approved training baseline unless a decision doc explicitly changes that.
+### Clone and install
 
-## Canonical Docs
+```bash
+git clone https://github.com/stevens-automations/predict-mlb.git
+cd predict-mlb
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
 
-- `docs/README.md`: canonical docs map
-- `docs/STATUS.md`: current repo state
-- `docs/PLAN.md`: ordered pre-training gates
-- `docs/TODO.md`: short execution queue
-- `docs/decisions.md`: locked decisions and open decisions
-- `docs/runbooks/historical-ingestion-runbook.md`: ingestion and rebuild commands
-- `docs/runbooks/training-architecture.md`: training flow and entrypoints
+### Configure environment
 
-## Cleanup Priorities
+```bash
+cp .env.example .env
+# Edit .env with your API keys
+```
 
-- Reduce durable script surface area around one rebuild path.
-- Archive or fold superseded notes into canonical docs.
-- Retire or clearly demote legacy / one-off paths that conflict with the historical rebuild-first architecture.
+Required environment variables:
+
+| Variable | Description |
+|----------|-------------|
+| `ODDS_API_KEY` | The Odds API key (for live betting lines) |
+| `TWITTER_API_KEY` | Twitter/X API v2 key |
+| `TWITTER_API_SECRET` | Twitter/X API v2 secret |
+| `TWITTER_ACCESS_TOKEN` | Twitter/X OAuth access token |
+| `TWITTER_ACCESS_TOKEN_SECRET` | Twitter/X OAuth access token secret |
+
+### Database note
+
+`data/mlb_history.db` is **not included in this repo** — it's too large (~500MB+). On first run the database will be empty. To restore the full historical database (2020–2025):
+- Contact the repo owner, or
+- Run the historical ingestion pipeline (see [docs/REFACTOR_SPEC.md](docs/REFACTOR_SPEC.md))
+
+### Model artifact
+
+The trained model artifact **is** included in the repo at:
+```
+artifacts/model_registry/matchup_lgbm_v4_tuned_final__20260319T122216Z/
+```
+No retraining is needed to run daily predictions.
+
+---
+
+## 4. Running
+
+```bash
+./start.sh
+```
+
+This starts the APScheduler-based daily runner and the FastAPI dashboard. Dashboard is available at **http://localhost:8765**.
+
+---
+
+## 5. Daily Schedule
+
+| Time (ET) | Job |
+|-----------|-----|
+| 8:00 AM | Ingest yesterday's game results |
+| 8:15 AM | Fetch today's schedule and odds |
+| 8:30 AM | Generate predictions and post to Twitter |
+| 11:00 PM | Evaluate today's predictions against final scores |
+
+---
+
+## 6. Dashboard
+
+Visit **http://localhost:8765** for:
+- Today's predictions with win probabilities and confidence tiers
+- Historical accuracy stats
+- Recent log output
+- Model metadata
+
+---
+
+## 7. Key Docs
+
+| Doc | Description |
+|-----|-------------|
+| [docs/REFACTOR_SPEC.md](docs/REFACTOR_SPEC.md) | Canonical architecture reference — data layers, feature contracts, training spec |
+| [docs/PIPELINE_SPEC.md](docs/PIPELINE_SPEC.md) | Daily pipeline spec — job sequence, error handling, retry logic |
+| [docs/OPS_PLAN.md](docs/OPS_PLAN.md) | Operations plan — scheduling, monitoring, deployment |
+| [docs/TODO.md](docs/TODO.md) | Active backlog and future roadmap items |
+
+---
+
+## License
+
+Private repository. All rights reserved.

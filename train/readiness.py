@@ -13,6 +13,8 @@ class SeasonReadiness:
     labeled_games: int
     feature_ready_games: int
     trainable_games: int
+    missing_feature_games: int
+    unlabeled_games: int
     valid_feature_rows: int
     degraded_feature_rows: int
 
@@ -67,6 +69,8 @@ def build_training_readiness_report(
             labeled_games=int(row["labeled_games"] or 0),
             feature_ready_games=int(row["feature_ready_games"] or 0),
             trainable_games=int(row["trainable_games"] or 0),
+            missing_feature_games=int((row["labeled_games"] or 0) - (row["trainable_games"] or 0)),
+            unlabeled_games=int((row["scheduled_games"] or 0) - (row["labeled_games"] or 0)),
             valid_feature_rows=int(row["valid_feature_rows"] or 0),
             degraded_feature_rows=int(row["degraded_feature_rows"] or 0),
         )
@@ -82,6 +86,8 @@ def build_training_readiness_report(
                 labeled_games=0,
                 feature_ready_games=0,
                 trainable_games=0,
+                missing_feature_games=0,
+                unlabeled_games=0,
                 valid_feature_rows=0,
                 degraded_feature_rows=0,
             ),
@@ -109,6 +115,8 @@ def build_training_readiness_report(
     total_trainable_games = sum(item.trainable_games for item in season_reports)
     total_feature_rows = sum(item.valid_feature_rows + item.degraded_feature_rows for item in season_reports)
     degraded_feature_rows = sum(item.degraded_feature_rows for item in season_reports)
+    missing_feature_games = sum(item.missing_feature_games for item in season_reports)
+    unlabeled_games = sum(item.unlabeled_games for item in season_reports)
     degraded_share = float(degraded_feature_rows / total_feature_rows) if total_feature_rows else 0.0
 
     return {
@@ -123,6 +131,8 @@ def build_training_readiness_report(
             "feature_rows": total_feature_rows,
             "degraded_feature_rows": degraded_feature_rows,
             "degraded_feature_share": degraded_share,
+            "missing_feature_games": missing_feature_games,
+            "unlabeled_games": unlabeled_games,
         },
         "seasons": [asdict(item) for item in season_reports],
     }
