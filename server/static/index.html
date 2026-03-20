@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>predict-mlb dashboard</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --panel: #161b22;
+      --panel-alt: #0d1117;
+      --border: #30363d;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --tab-active: #21262d;
+      --accent: #58a6ff;
+      --green: #3fb950;
+      --yellow: #d29922;
+      --gray: #6e7681;
+      --red: #f85149;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 20px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: monospace;
+    }
+
+    .dashboard {
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    .title {
+      margin: 0;
+      font-size: 28px;
+      line-height: 1.2;
+    }
+
+    .subtitle {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .refresh-time {
+      color: var(--muted);
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 8px;
+    }
+
+    .tab-button {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-bottom: 2px solid transparent;
+      padding: 10px 14px;
+      cursor: pointer;
+      font: inherit;
+    }
+
+    .tab-button.active {
+      background: var(--tab-active);
+      border-bottom-color: var(--accent);
+    }
+
+    .tab-panel {
+      display: none;
+    }
+
+    .tab-panel.active {
+      display: block;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      padding: 16px;
+    }
+
+    .panel-title {
+      margin: 0 0 16px;
+      font-size: 18px;
+    }
+
+    .panel-subtitle {
+      margin: -8px 0 16px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .table-wrap {
+      width: 100%;
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th,
+    td {
+      padding: 8px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+
+    th {
+      color: var(--muted);
+      font-weight: normal;
+    }
+
+    tbody tr:nth-child(odd) {
+      background: var(--panel);
+    }
+
+    tbody tr:nth-child(even) {
+      background: var(--panel-alt);
+    }
+
+    .empty-state {
+      color: var(--muted);
+      padding: 8px 0;
+    }
+
+    .status-correct {
+      color: var(--green);
+    }
+
+    .status-wrong {
+      color: var(--red);
+    }
+
+    .status-pending {
+      color: var(--muted);
+    }
+
+    .tier-high {
+      color: var(--green);
+    }
+
+    .tier-medium {
+      color: var(--yellow);
+    }
+
+    .tier-low {
+      color: var(--gray);
+    }
+
+    .log-completed {
+      color: var(--green);
+    }
+
+    .log-failed {
+      color: var(--red);
+    }
+
+    .log-started {
+      color: var(--gray);
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+    }
+
+    .stat-card {
+      border: 1px solid var(--border);
+      background: var(--panel-alt);
+      padding: 14px;
+    }
+
+    .stat-label {
+      color: var(--muted);
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      font-size: 12px;
+      letter-spacing: 0.04em;
+    }
+
+    .stat-value {
+      font-size: 24px;
+      margin-bottom: 6px;
+    }
+
+    .stat-meta {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .log-feed {
+      display: grid;
+      gap: 8px;
+    }
+
+    .log-entry {
+      display: grid;
+      grid-template-columns: 180px 160px 120px 1fr;
+      gap: 12px;
+      border: 1px solid var(--border);
+      background: var(--panel-alt);
+      padding: 10px 12px;
+      align-items: start;
+    }
+
+    @media (max-width: 900px) {
+      .header {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      .log-entry {
+        grid-template-columns: 1fr;
+        gap: 4px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="dashboard">
+    <header class="header">
+      <div>
+        <h1 class="title">predict-mlb dashboard</h1>
+        <div class="subtitle">Live view of predictions, pipeline activity, and season accuracy.</div>
+      </div>
+      <div class="refresh-time" id="last-refreshed">Last refreshed: --:--:--</div>
+    </header>
+
+    <nav class="tabs" id="tabs">
+      <button class="tab-button active" data-tab="today">Today's Predictions</button>
+      <button class="tab-button" data-tab="log">Pipeline Log</button>
+      <button class="tab-button" data-tab="stats">Season Stats</button>
+      <button class="tab-button" data-tab="yesterday">Yesterday's Results</button>
+    </nav>
+
+    <section class="tab-panel active" id="panel-today">
+      <div class="panel">
+        <h2 class="panel-title">Today's Predictions</h2>
+        <div id="today-content"></div>
+      </div>
+    </section>
+
+    <section class="tab-panel" id="panel-log">
+      <div class="panel">
+        <h2 class="panel-title">Pipeline Log</h2>
+        <div id="log-content"></div>
+      </div>
+    </section>
+
+    <section class="tab-panel" id="panel-stats">
+      <div class="panel">
+        <h2 class="panel-title">Season Stats</h2>
+        <div id="stats-content"></div>
+      </div>
+    </section>
+
+    <section class="tab-panel" id="panel-yesterday">
+      <div class="panel">
+        <h2 class="panel-title">Yesterday's Results</h2>
+        <div class="panel-subtitle" id="yesterday-label"></div>
+        <div id="yesterday-content"></div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const REFRESH_MS = 60000;
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function getYesterdayDate() {
+      const d = new Date();
+      d.setDate(d.getDate() - 1);
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      return year + "-" + month + "-" + day;
+    }
+
+    function formatPct(value) {
+      return (value * 100).toFixed(1) + "%";
+    }
+
+    function setLastRefreshed() {
+      const now = new Date();
+      document.getElementById("last-refreshed").textContent =
+        "Last refreshed: " + now.toLocaleTimeString();
+    }
+
+    function getTierClass(tier) {
+      if (tier === "high") return "tier-high";
+      if (tier === "medium") return "tier-medium";
+      return "tier-low";
+    }
+
+    function renderPredictionsTable(rows, emptyMessage) {
+      if (!Array.isArray(rows) || rows.length === 0) {
+        return '<div class="empty-state">' + escapeHtml(emptyMessage) + "</div>";
+      }
+
+      const body = rows.map((row) => {
+        const awayHome = escapeHtml((row.away_team || "") + " @ " + (row.home_team || ""));
+        const predictedWinner = escapeHtml(row.predicted_winner || "");
+        const homeProb = Number(row.home_win_prob || 0);
+        const winnerProb = row.predicted_winner === row.home_team ? homeProb : 1 - homeProb;
+        const tier = escapeHtml(row.confidence_tier || "low");
+        const pitch = escapeHtml(row.first_pitch_et || "");
+        const didPredictCorrect = row.did_predict_correct == null ? null : Number(row.did_predict_correct);
+        const tweetText = row.tweet_text || null;
+        const tweetScheduled = row.tweet_scheduled_at || null;
+        const tierEmoji = row.confidence_tier === 'high' ? '🔥' : row.confidence_tier === 'medium' ? '⚡' : '';
+        let tweetCell;
+        if (tweetText) {
+          const schedPart = tweetScheduled ? ' · ' + escapeHtml(tweetScheduled) : '';
+          tweetCell = '<td><details><summary style="cursor:pointer">' + tierEmoji + ' Tweet' + schedPart + '</summary><div style="white-space:pre-wrap;font-size:12px;padding:4px 0;max-width:300px">' + escapeHtml(tweetText) + '</div></details></td>';
+        } else {
+          tweetCell = '<td style="color:var(--muted)">—</td>';
+        }
+
+        let statusText = "Pending";
+        let statusClass = "status-pending";
+        if (didPredictCorrect === 1) {
+          statusText = "\u2713 Correct";
+          statusClass = "status-correct";
+        } else if (didPredictCorrect === 0) {
+          statusText = "\u2717 Wrong";
+          statusClass = "status-wrong";
+        }
+
+        return [
+          "<tr>",
+          "<td>" + awayHome + "</td>",
+          "<td>" + predictedWinner + "</td>",
+          "<td>" + escapeHtml(formatPct(winnerProb)) + "</td>",
+          '<td class="' + getTierClass(row.confidence_tier) + '">' + tier + "</td>",
+          "<td>" + pitch + "</td>",
+          '<td class="' + statusClass + '">' + escapeHtml(statusText) + "</td>",
+          tweetCell,
+          "</tr>"
+        ].join("");
+      }).join("");
+
+      return [
+        '<div class="table-wrap">',
+        "<table>",
+        "<thead>",
+        "<tr>",
+        "<th>Away @ Home</th>",
+        "<th>Predicted Winner</th>",
+        "<th>Win Prob</th>",
+        "<th>Tier</th>",
+        "<th>First Pitch</th>",
+        "<th>Status</th>",
+        "<th>Tweet</th>",
+        "</tr>",
+        "</thead>",
+        "<tbody>",
+        body,
+        "</tbody>",
+        "</table>",
+        "</div>"
+      ].join("");
+    }
+
+    function renderLog(entries) {
+      if (!Array.isArray(entries) || entries.length === 0) {
+        return '<div class="empty-state">No pipeline log entries.</div>';
+      }
+
+      return '<div class="log-feed">' + entries.slice(0, 20).map((entry) => {
+        const status = entry.status || "";
+        let statusClass = "";
+        if (status === "completed") statusClass = "log-completed";
+        else if (status === "failed") statusClass = "log-failed";
+        else if (status === "started") statusClass = "log-started";
+
+        return [
+          '<div class="log-entry ' + statusClass + '">',
+          "<div>" + escapeHtml(entry.ts || "") + "</div>",
+          "<div>" + escapeHtml(entry.job || "") + "</div>",
+          "<div>" + escapeHtml(status) + "</div>",
+          "<div>" + escapeHtml(entry.message || "") + "</div>",
+          "</div>"
+        ].join("");
+      }).join("") + "</div>";
+    }
+
+    function renderStats(data) {
+      const overall = data && data.overall ? data.overall : { correct: 0, total: 0, pct: 0 };
+      const tiers = data && data.by_tier ? data.by_tier : {};
+      const losses = Math.max(0, (overall.total || 0) - (overall.correct || 0));
+
+      const cards = ["high", "medium", "low"].map((tier) => {
+        const item = tiers[tier] || { correct: 0, total: 0, pct: 0 };
+        const tierLosses = Math.max(0, (item.total || 0) - (item.correct || 0));
+        return [
+          '<div class="stat-card">',
+          '<div class="stat-label ' + getTierClass(tier) + '">' + escapeHtml(tier) + "</div>",
+          '<div class="stat-value">' + escapeHtml(item.correct + "-" + tierLosses + " (" + formatPct(item.pct || 0) + ")") + "</div>",
+          '<div class="stat-meta">' + escapeHtml((item.total || 0) + " graded picks") + "</div>",
+          "</div>"
+        ].join("");
+      }).join("");
+
+      return [
+        '<div class="stats-grid">',
+        '<div class="stat-card">',
+        '<div class="stat-label">Overall Record</div>',
+        '<div class="stat-value">' + escapeHtml(overall.correct + "-" + losses + " (" + formatPct(overall.pct || 0) + ")") + "</div>",
+        '<div class="stat-meta">' + escapeHtml((overall.total || 0) + " graded picks") + "</div>",
+        "</div>",
+        cards,
+        "</div>"
+      ].join("");
+    }
+
+    async function fetchJson(url) {
+      const response = await fetch(url, { cache: "no-store" });
+      if (!response.ok) {
+        throw new Error("Request failed: " + response.status);
+      }
+      return response.json();
+    }
+
+    async function loadToday() {
+      const content = document.getElementById("today-content");
+      try {
+        const data = await fetchJson("/api/predictions/today");
+        content.innerHTML = renderPredictionsTable(data, "No predictions for today yet.");
+      } catch (error) {
+        content.innerHTML = '<div class="empty-state">Unable to load today\'s predictions.</div>';
+      }
+    }
+
+    async function loadLog() {
+      const content = document.getElementById("log-content");
+      try {
+        const data = await fetchJson("/api/log");
+        content.innerHTML = renderLog(data);
+      } catch (error) {
+        content.innerHTML = '<div class="empty-state">Unable to load pipeline log.</div>';
+      }
+    }
+
+    async function loadStats() {
+      const content = document.getElementById("stats-content");
+      try {
+        const data = await fetchJson("/api/accuracy");
+        content.innerHTML = renderStats(data || {});
+      } catch (error) {
+        content.innerHTML = '<div class="empty-state">Unable to load season stats.</div>';
+      }
+    }
+
+    async function loadYesterday() {
+      const yesterday = getYesterdayDate();
+      document.getElementById("yesterday-label").textContent = "Results for " + yesterday;
+
+      const content = document.getElementById("yesterday-content");
+      try {
+        const data = await fetchJson("/api/predictions/" + yesterday);
+        content.innerHTML = renderPredictionsTable(data, "No predictions found for yesterday.");
+      } catch (error) {
+        content.innerHTML = '<div class="empty-state">Unable to load yesterday\'s results.</div>';
+      }
+    }
+
+    async function loadAll() {
+      await Promise.all([loadToday(), loadLog(), loadStats(), loadYesterday()]);
+      setLastRefreshed();
+    }
+
+    function initTabs() {
+      const buttons = document.querySelectorAll(".tab-button");
+      const panels = document.querySelectorAll(".tab-panel");
+
+      buttons.forEach((button) => {
+        button.addEventListener("click", () => {
+          const target = button.dataset.tab;
+
+          buttons.forEach((item) => item.classList.toggle("active", item === button));
+          panels.forEach((panel) => {
+            panel.classList.toggle("active", panel.id === "panel-" + target);
+          });
+        });
+      });
+    }
+
+    initTabs();
+    loadAll();
+    setInterval(loadAll, REFRESH_MS);
+  </script>
+</body>
+</html>

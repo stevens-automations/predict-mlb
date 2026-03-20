@@ -1,20 +1,29 @@
 from apscheduler.events import EVENT_SCHEDULER_STARTED, EVENT_JOB_EXECUTED  # type: ignore
 from apscheduler.schedulers.blocking import BlockingScheduler  # type: ignore
 from apscheduler.triggers.cron import CronTrigger  # type: ignore
-from predict import check_and_predict
-from dotenv import load_dotenv  # type: ignore
 from datetime import datetime
-import time
-import pytz  # type: ignore
+from pathlib import Path
 import os
+import sys
+import time
+
+import pytz  # type: ignore
+
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from paths import load_env
+from predict import check_and_predict
+from runtime import validate_runtime
 
 # use model defined in .env or by default 'mlb4year'
 selected_model = "mlb4year"
 cwd = os.path.dirname(os.path.abspath(__file__))
-env_file_path = os.path.join(cwd, ".env")
-load_dotenv(env_file_path)
+load_env()
 ret = os.getenv("SELECTED_MODEL")
 selected_model = ret if ret is not None else selected_model
+validate_runtime()
 
 eastern = pytz.timezone("America/New_York")
 
