@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Recompute Layer 2 derived feature tables for a given season."""
+"""
+Rebuild Layer 2 derived feature tables for the current MLB season.
+
+Recomputes: team_pregame_stats, starter_pregame_stats, bullpen_pregame_stats,
+lineup_pregame_context, team_vs_hand_pregame_stats.
+Called after ingest_yesterday so inference features reflect yesterday's results.
+Season scope defaults to the current calendar year.
+"""
 
 from __future__ import annotations
 

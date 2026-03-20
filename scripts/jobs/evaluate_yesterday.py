@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Score yesterday's predictions vs actual results and log accuracy."""
+"""
+Score yesterday's game predictions against actual results.
+
+Compares daily_predictions to outcomes in the labels table.
+Writes did_predict_correct, actual_winner, home_score, away_score.
+Logs overall and per-tier accuracy summary to pipeline_log.
+"""
 
 from __future__ import annotations
 

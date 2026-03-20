@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Pull yesterday's completed MLB games and update raw DB tables."""
+"""
+Ingest yesterday's completed MLB games into raw DB tables.
+
+Fetches from the MLB Stats API (statsapi) for all Final regular-season games
+on yesterday's date. Updates: games, labels, game_team_stats,
+game_pitcher_appearances, game_lineup_snapshots.
+Called nightly by run_daily.py after midnight ET.
+"""
 
 from __future__ import annotations
 

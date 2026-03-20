@@ -1,3 +1,14 @@
+"""
+FastAPI server for the predict-mlb dashboard.
+
+Endpoints:
+  GET /api/predictions/today   - today's predictions (all columns incl tweet fields)
+  GET /api/predictions/{date}  - predictions for any YYYY-MM-DD date
+  GET /api/log                 - last 50 pipeline_log entries
+  GET /api/accuracy            - overall + per-tier prediction accuracy stats
+  GET /api/status              - latest pipeline job run status
+"""
+
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse

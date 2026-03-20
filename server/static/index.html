@@ -338,6 +338,16 @@
         const tier = escapeHtml(row.confidence_tier || "low");
         const pitch = escapeHtml(row.first_pitch_et || "");
         const didPredictCorrect = row.did_predict_correct == null ? null : Number(row.did_predict_correct);
+        const tweetText = row.tweet_text || null;
+        const tweetScheduled = row.tweet_scheduled_at || null;
+        const tierEmoji = row.confidence_tier === 'high' ? '🔥' : row.confidence_tier === 'medium' ? '⚡' : '';
+        let tweetCell;
+        if (tweetText) {
+          const schedPart = tweetScheduled ? ' · ' + escapeHtml(tweetScheduled) : '';
+          tweetCell = '<td><details><summary style="cursor:pointer">' + tierEmoji + ' Tweet' + schedPart + '</summary><div style="white-space:pre-wrap;font-size:12px;padding:4px 0;max-width:300px">' + escapeHtml(tweetText) + '</div></details></td>';
+        } else {
+          tweetCell = '<td style="color:var(--muted)">—</td>';
+        }
 
         let statusText = "Pending";
         let statusClass = "status-pending";
@@ -357,6 +367,7 @@
           '<td class="' + getTierClass(row.confidence_tier) + '">' + tier + "</td>",
           "<td>" + pitch + "</td>",
           '<td class="' + statusClass + '">' + escapeHtml(statusText) + "</td>",
+          tweetCell,
           "</tr>"
         ].join("");
       }).join("");
@@ -372,6 +383,7 @@
         "<th>Tier</th>",
         "<th>First Pitch</th>",
         "<th>Status</th>",
+        "<th>Tweet</th>",
         "</tr>",
         "</thead>",
         "<tbody>",
