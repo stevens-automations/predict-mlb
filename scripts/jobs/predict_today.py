@@ -35,7 +35,10 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts.inference.feature_builder import build_feature_row
-from scripts.inference.scorer import score_game
+from scripts.inference.scorer import score_game, _load_model
+from scripts.inference.explainer import explain_prediction
+from scripts.jobs.schedule_tweets import score_game_interestingness
+from scripts.jobs.fetch_odds import prob_to_american_ml
 
 CREATE_DAILY_PREDICTIONS_SQL = """
 CREATE TABLE IF NOT EXISTS daily_predictions (
@@ -52,6 +55,12 @@ CREATE TABLE IF NOT EXISTS daily_predictions (
     home_odds           TEXT,
     away_odds           TEXT,
     best_odds_bookmaker TEXT,
+    implied_home_ml     INTEGER,
+    odds_gap            INTEGER,
+    shap_reasons_json   TEXT,
+    tweet_score         INTEGER,
+    tweet_eligible      INTEGER DEFAULT 0,
+    tweet_text          TEXT,
     tweet_scheduled_at  TEXT,
     tweeted             INTEGER DEFAULT 0,
     actual_winner       TEXT,
@@ -63,6 +72,15 @@ CREATE TABLE IF NOT EXISTS daily_predictions (
     updated_at          TEXT DEFAULT (datetime('now'))
 )
 """
+
+MIGRATE_DAILY_PREDICTIONS_COLS = [
+    ("implied_home_ml", "INTEGER"),
+    ("odds_gap", "INTEGER"),
+    ("shap_reasons_json", "TEXT"),
+    ("tweet_score", "INTEGER"),
+    ("tweet_eligible", "INTEGER DEFAULT 0"),
+    ("tweet_text", "TEXT"),
+]
 
 CREATE_PIPELINE_LOG_SQL = """
 CREATE TABLE IF NOT EXISTS pipeline_log (
@@ -105,6 +123,22 @@ def predict_today(
     conn.execute(CREATE_DAILY_PREDICTIONS_SQL)
     conn.execute(CREATE_PIPELINE_LOG_SQL)
     conn.commit()
+
+    # Migrate: add new columns if not present (idempotent)
+    for col, typedef in MIGRATE_DAILY_PREDICTIONS_COLS:
+        try:
+            conn.execute(f"ALTER TABLE daily_predictions ADD COLUMN {col} {typedef}")
+            conn.commit()
+        except Exception:
+            pass  # Column already exists
+
+    # Load model bundle once for explainer
+    try:
+        _model, _feature_cols = _load_model()
+        model_bundle = {"model": _model, "feature_cols": _feature_cols}
+    except Exception as e:
+        model_bundle = None
+        _log(conn, JOB, "warn", f"Could not load model bundle for explainer: {e}")
 
     if date_str is None:
         date_str = datetime.now(ET_TZ).strftime("%Y-%m-%d")
@@ -165,14 +199,40 @@ def predict_today(
 
                 now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
+                # Compute implied ML and odds gap
+                home_win_prob = score["home_win_prob"]
+                implied_home_ml = prob_to_american_ml(home_win_prob)
+                home_odds_str = r.get("home_odds")
+                market_home_ml = None
+                odds_gap = None
+                if home_odds_str:
+                    try:
+                        market_home_ml = int(str(home_odds_str).replace("+", ""))
+                        odds_gap = market_home_ml - implied_home_ml
+                    except (TypeError, ValueError):
+                        pass
+
+                # Run SHAP explainer
+                shap_reasons = []
+                shap_reasons_json = None
+                if model_bundle is not None:
+                    try:
+                        import json
+                        shap_reasons = explain_prediction(features, model_bundle)
+                        shap_reasons_json = json.dumps(shap_reasons)
+                    except Exception as ex:
+                        _log(conn, JOB, "warn", f"game_id={game_id}: explainer failed: {ex}")
+
                 # Write to daily_predictions
                 conn.execute(
                     """
                     INSERT OR IGNORE INTO daily_predictions
                         (game_id, game_date, home_team, away_team, home_team_id, away_team_id,
                          first_pitch_et, predicted_winner, home_win_prob, confidence_tier,
-                         home_odds, away_odds, best_odds_bookmaker, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         home_odds, away_odds, best_odds_bookmaker,
+                         implied_home_ml, odds_gap, shap_reasons_json,
+                         created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         game_id,
@@ -183,14 +243,56 @@ def predict_today(
                         r.get("away_team_id"),
                         r.get("first_pitch_et"),
                         score["predicted_winner"],
-                        score["home_win_prob"],
+                        home_win_prob,
                         score["confidence_tier"],
                         r.get("home_odds"),
                         r.get("away_odds"),
                         r.get("odds_bookmaker"),
+                        implied_home_ml,
+                        odds_gap,
+                        shap_reasons_json,
                         now,
                         now,
                     ),
+                )
+                conn.commit()
+
+                # Build full prediction row for tweet scoring
+                prediction_row = {
+                    "game_id": game_id,
+                    "home_team": r.get("home_team"),
+                    "away_team": r.get("away_team"),
+                    "predicted_winner": score["predicted_winner"],
+                    "home_win_prob": home_win_prob,
+                    "confidence_tier": score["confidence_tier"],
+                    "home_odds": r.get("home_odds"),
+                    "away_odds": r.get("away_odds"),
+                    "odds_gap": odds_gap,
+                    "implied_home_ml": implied_home_ml,
+                    "shap_reasons_json": shap_reasons_json,
+                }
+
+                # Tweet scoring
+                tweet_score = score_game_interestingness(prediction_row)
+                tweet_eligible = 1 if tweet_score >= 2 else 0
+                tweet_text = None
+
+                # Generate tweet for eligible games
+                if tweet_eligible:
+                    try:
+                        from server.tweet_generator_llm import generate_tweet
+                        tweet_text = generate_tweet(prediction_row, shap_reasons)
+                    except Exception as ex:
+                        _log(conn, JOB, "warn", f"game_id={game_id}: tweet gen failed: {ex}")
+
+                # Update tweet fields
+                conn.execute(
+                    """
+                    UPDATE daily_predictions
+                    SET tweet_score = ?, tweet_eligible = ?, tweet_text = ?, updated_at = datetime('now')
+                    WHERE game_id = ?
+                    """,
+                    (tweet_score, tweet_eligible, tweet_text, game_id),
                 )
                 conn.commit()
 
@@ -199,10 +301,16 @@ def predict_today(
                     "home_team": r.get("home_team"),
                     "away_team": r.get("away_team"),
                     "predicted_winner": score["predicted_winner"],
-                    "home_win_prob": score["home_win_prob"],
+                    "home_win_prob": home_win_prob,
                     "away_win_prob": score["away_win_prob"],
                     "confidence_tier": score["confidence_tier"],
                     "cold_start": features.get("cold_start", False),
+                    "implied_home_ml": implied_home_ml,
+                    "odds_gap": odds_gap,
+                    "tweet_score": tweet_score,
+                    "tweet_eligible": tweet_eligible,
+                    "tweet_text": tweet_text,
+                    "shap_reasons": shap_reasons,
                 }
                 results.append(result)
 

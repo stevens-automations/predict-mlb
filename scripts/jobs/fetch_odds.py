@@ -129,6 +129,36 @@ def _best_odds_for_team(bookmakers: list, team_name: str) -> tuple[Optional[str]
     return odds_str, best_bookmaker
 
 
+def prob_to_american_ml(prob: float) -> int:
+    """
+    Convert win probability to American moneyline odds.
+
+    Args:
+        prob: Win probability (0.0 - 1.0).
+
+    Returns:
+        American ML odds (e.g. -178 for 0.64 probability, +125 for 0.44 probability).
+    """
+    if prob <= 0:
+        return 10000
+    if prob >= 1:
+        return -10000
+    if prob >= 0.5:
+        return int(-(prob / (1 - prob)) * 100)
+    else:
+        return int(((1 - prob) / prob) * 100)
+
+
+def _ensure_odds_gap_columns(conn: sqlite3.Connection):
+    """Add implied_home_ml and odds_gap columns to daily_predictions if not present."""
+    for col, typedef in [("implied_home_ml", "INTEGER"), ("odds_gap", "INTEGER")]:
+        try:
+            conn.execute(f"ALTER TABLE daily_predictions ADD COLUMN {col} {typedef}")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+
 def _normalize_team_name(name: str) -> str:
     """Lowercase + strip for fuzzy matching."""
     return name.lower().strip()
