@@ -51,15 +51,15 @@ def generate_tweet(game: dict, shap_reasons: list[dict], model: str = DEFAULT_MO
 
     prompt = f"""You write short MLB prediction tweets. Be specific and confident. No hashtags. No emojis unless one fits naturally. Max 240 characters. Sound like a sharp sports bettor, not a bot. Do not mention AI, models, or algorithms.
 
-Game: {game['away_team']} @ {game['home_team']}
-Our pick: {winner} ({win_pct}% confidence)
+Game: {game['away_team']} (away) @ {game['home_team']} (home)
+Our pick: {winner} to win ({win_pct}% confidence)
 {odds_line}
 {value_note}
 
-Key reasons:
+Key reasons we like {winner}:
 {reasons_text}
 
-Write one tweet. Be direct and specific."""
+Write one tweet. Be direct and specific. Make sure all stats and reasons clearly refer to {winner}."""
 
     try:
         resp = requests.post(
