@@ -213,5 +213,66 @@ def evaluate_yesterday(
         raise
 
 
+def generate_weekly_recap(conn) -> str:
+    """
+    Generate weekly recap tweet text. Called every Monday morning.
+    Includes: season W/L record, best upset correctly predicted this week.
+    """
+    from datetime import datetime, timedelta
+    import pytz
+    ET = pytz.timezone('America/New_York')
+    today = datetime.now(ET).date()
+    week_start = today - timedelta(days=7)
+
+    # Season totals
+    season_row = conn.execute('''
+        SELECT COUNT(*) as total, SUM(did_predict_correct) as correct
+        FROM daily_predictions
+        WHERE did_predict_correct IS NOT NULL
+    ''').fetchone()
+    total = season_row['total'] or 0
+    correct = int(season_row['correct'] or 0)
+    season_pct = int(100 * correct / total) if total else 0
+
+    # This week's totals
+    week_row = conn.execute('''
+        SELECT COUNT(*) as total, SUM(did_predict_correct) as correct
+        FROM daily_predictions
+        WHERE did_predict_correct IS NOT NULL AND game_date >= ?
+    ''', (str(week_start),)).fetchone()
+    w_total = week_row['total'] or 0
+    w_correct = int(week_row['correct'] or 0)
+
+    # Best upset correctly predicted this week
+    upset_row = conn.execute('''
+        SELECT home_team, away_team, predicted_winner, home_win_prob,
+               home_odds, away_odds, game_date
+        FROM daily_predictions
+        WHERE did_predict_correct = 1
+        AND game_date >= ?
+        AND (
+            (predicted_winner = 'home' AND CAST(home_odds AS INTEGER) > 0)
+            OR
+            (predicted_winner = 'away' AND CAST(away_odds AS INTEGER) > 0)
+        )
+        ORDER BY ABS(CAST(
+            CASE WHEN predicted_winner='home' THEN home_odds ELSE away_odds END
+        AS INTEGER)) DESC
+        LIMIT 1
+    ''', (str(week_start),)).fetchone()
+
+    # Build tweet
+    lines = []
+    lines.append(f'Weekly recap: {w_correct}/{w_total} this week.')
+    lines.append(f'Season record: {correct}/{total} ({season_pct}%)')
+
+    if upset_row:
+        winner_name = upset_row['home_team'] if upset_row['predicted_winner'] == 'home' else upset_row['away_team']
+        upset_odds = upset_row['home_odds'] if upset_row['predicted_winner'] == 'home' else upset_row['away_odds']
+        lines.append(f'Best pick: {winner_name} ({upset_odds}) \u2713')
+
+    return ' | '.join(lines)
+
+
 # Type alias for row access compatibility
 from typing import Any  # noqa: E402 (moved import for use in nested function)
