@@ -44,6 +44,26 @@ CREATE TABLE IF NOT EXISTS today_schedule (
 )
 """
 
+CREATE_GAMES_SQL = """
+CREATE TABLE IF NOT EXISTS games (
+    game_id             INTEGER PRIMARY KEY,
+    season              INTEGER NOT NULL,
+    game_date           TEXT NOT NULL,
+    game_type           TEXT,
+    status              TEXT,
+    scheduled_datetime  TEXT,
+    home_team_id        INTEGER,
+    away_team_id        INTEGER,
+    home_score          INTEGER,
+    away_score          INTEGER,
+    winning_team_id     INTEGER,
+    source_updated_at   TEXT,
+    ingested_at         TEXT DEFAULT (datetime('now')),
+    venue_id            INTEGER,
+    day_night           TEXT
+)
+"""
+
 CREATE_PIPELINE_LOG_SQL = """
 CREATE TABLE IF NOT EXISTS pipeline_log (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -100,6 +120,7 @@ def fetch_todays_games(
 
     # Ensure tables exist
     conn.execute(CREATE_TODAY_SCHEDULE_SQL)
+    conn.execute(CREATE_GAMES_SQL)
     conn.execute(CREATE_PIPELINE_LOG_SQL)
     conn.commit()
 
@@ -167,6 +188,33 @@ def fetch_todays_games(
                     first_pitch_et,
                     fetched_at,
                 ),
+            )
+
+            # Pre-populate games table so feature_builder can look up game metadata
+            game_datetime_str = game.get("game_datetime") or game.get("gameDate")
+            if game_datetime_str:
+                try:
+                    dt_utc = datetime.fromisoformat(game_datetime_str.replace("Z", "+00:00"))
+                    scheduled_datetime = dt_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+                except Exception:
+                    scheduled_datetime = None
+            else:
+                scheduled_datetime = None
+
+            venue_id_val = game.get("venue_id")
+            day_night_val = game.get("day_night")
+            game_status = game.get("status") or "Scheduled"
+            season_val = int(date_str[:4])
+
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO games
+                    (game_id, season, game_date, game_type, status, scheduled_datetime,
+                     home_team_id, away_team_id, venue_id, day_night)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (game_id, season_val, date_str, "R", game_status, scheduled_datetime,
+                 home_team_id, away_team_id, venue_id_val, day_night_val),
             )
 
         conn.commit()

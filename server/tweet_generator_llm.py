@@ -3,26 +3,66 @@
 LLM-based tweet generator for predict-mlb.
 
 Uses local Qwen via Ollama. Falls back to deterministic scaffold if Ollama unavailable.
+Model preference: qwen3.5:9b → qwen3.5:4b → deterministic scaffold.
 """
 from __future__ import annotations
+
+import re
 
 import requests
 
 OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
-DEFAULT_MODEL = "qwen3.5:4b"
+DEFAULT_MODEL = "qwen3.5:9b"
+FALLBACK_MODEL = "qwen3.5:4b"
+
+
+def _enforce_char_limit(text: str, limit: int = 275) -> str:
+    """Truncate at word boundary if over limit."""
+    if len(text) <= limit:
+        return text
+    truncated = text[:limit].rsplit(' ', 1)[0]
+    return truncated.rstrip('.,;:') + '…'
+
+
+def _call_ollama(prompt: str, model: str, timeout: int = 15) -> str | None:
+    """
+    Call Ollama API. Returns stripped tweet text or None on failure.
+    """
+    try:
+        resp = requests.post(
+            OLLAMA_URL,
+            json={
+                "model": model,
+                "prompt": prompt,
+                "stream": False,
+                "think": False,  # disable Qwen3.5 extended thinking mode
+                "options": {"temperature": 0.75, "num_predict": 120},
+            },
+            timeout=timeout,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            tweet = data.get("response", "").strip()
+            # Strip <think>...</think> blocks that Qwen sometimes emits
+            tweet = re.sub(r"<think>.*?</think>", "", tweet, flags=re.DOTALL).strip()
+            if tweet:
+                return tweet
+    except Exception:
+        pass
+    return None
 
 
 def generate_tweet(game: dict, shap_reasons: list[dict], model: str = DEFAULT_MODEL) -> str:
     """
     Generate a tweet using local Qwen via Ollama.
-    Falls back to deterministic scaffold if Ollama unavailable.
+    Falls back: 9B → 4B → deterministic scaffold.
 
     Args:
         game: dict with keys: home_team, away_team, predicted_winner, home_win_prob,
               confidence_tier, home_odds, away_odds, odds_gap (optional),
               implied_home_ml (optional).
         shap_reasons: list of SHAP reason dicts from explainer.explain_prediction().
-        model: Ollama model name.
+        model: Ollama model name (default: qwen3.5:9b).
 
     Returns:
         Tweet string (<= 280 chars).
@@ -42,8 +82,8 @@ def generate_tweet(game: dict, shap_reasons: list[dict], model: str = DEFAULT_MO
     reasons = [r["human_summary"] for r in shap_reasons[:3] if r.get("human_summary")]
     reasons_text = "\n".join(f"- {r}" for r in reasons) if reasons else "(no specific factors available)"
 
-    # Market odds line
-    if game.get("home_odds"):
+    # Market odds line — include whenever odds are available
+    if game.get("home_odds") or game.get("away_odds"):
         winner_odds = game.get("home_odds") if game["predicted_winner"] == "home" else game.get("away_odds", "N/A")
         odds_line = f"Market odds: {winner} at {winner_odds}"
     else:
@@ -61,33 +101,24 @@ Why {winner}:
 
 Tweet:"""
 
-    try:
-        resp = requests.post(
-            OLLAMA_URL,
-            json={
-                "model": model,
-                "prompt": prompt,
-                "stream": False,
-                "think": False,  # disable Qwen3.5 extended thinking mode
-                "options": {"temperature": 0.75, "num_predict": 120},
-            },
-            timeout=15,
-        )
-        if resp.status_code == 200:
-            import re
-            data = resp.json()
-            tweet = data.get("response", "").strip()
-            # Strip <think>...</think> blocks that Qwen sometimes emits
-            tweet = re.sub(r"<think>.*?</think>", "", tweet, flags=re.DOTALL).strip()
-            if tweet and len(tweet) <= 280:
-                return tweet
-    except Exception:
-        pass
+    # Try primary model first (9B), then fallback (4B)
+    models_to_try = [model]
+    if model != FALLBACK_MODEL:
+        models_to_try.append(FALLBACK_MODEL)
+
+    for m in models_to_try:
+        tweet = _call_ollama(prompt, m)
+        if tweet and len(tweet) <= 280:
+            return _enforce_char_limit(tweet)
+        elif tweet:
+            # Over limit — truncate and return
+            return _enforce_char_limit(tweet)
 
     # Fallback to deterministic scaffold
     try:
         from server.tweet_scaffold import format_prediction_tweet
         lines = format_prediction_tweet([game])
-        return lines[0] if lines else f"{winner} ({win_pct}%) over {loser}"
+        result = lines[0] if lines else f"{winner} ({win_pct}%) over {loser}"
+        return _enforce_char_limit(result)
     except Exception:
-        return f"{winner} ({win_pct}%) over {loser}"
+        return _enforce_char_limit(f"{winner} ({win_pct}%) over {loser}")

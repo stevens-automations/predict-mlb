@@ -185,6 +185,27 @@ def evaluate_yesterday(
         _log(conn, JOB, "completed", summary, elapsed)
         logger.info(f"[{JOB}] {summary}")
 
+        # Results tweet summary — season-to-date record
+        try:
+            season_row = conn.execute(
+                """
+                SELECT COUNT(*) as total, SUM(did_predict_correct) as correct
+                FROM daily_predictions
+                WHERE did_predict_correct IS NOT NULL
+                """
+            ).fetchone()
+            season_total = season_row[0] if season_row else 0
+            season_correct = int(season_row[1] or 0) if season_row else 0
+            season_acc = season_correct / season_total if season_total > 0 else 0.0
+            results_summary = (
+                f"Yesterday: {correct}/{total} ({accuracy:.0%}) on full slate. "
+                f"Season: {season_correct}/{season_total} ({season_acc:.0%})"
+            )
+            _log(conn, JOB, "results_summary", results_summary, 0.0)
+            logger.info(f"[{JOB}] results_summary: {results_summary}")
+        except Exception as exc:
+            logger.warning(f"[{JOB}] results_summary failed: {exc}")
+
     except Exception as exc:
         elapsed = time.time() - t0
         _log(conn, JOB, "failed", str(exc), elapsed)
