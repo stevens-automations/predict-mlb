@@ -19,10 +19,11 @@ from __future__ import annotations
 import logging
 import sqlite3
 import traceback
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytz
+import requests
 from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
 from apscheduler.schedulers.blocking import BlockingScheduler
 
@@ -149,12 +150,116 @@ def _open_conn() -> sqlite3.Connection:
     return conn
 
 
-def morning_chain() -> None:
+def check_ollama() -> bool:
+    """Check if Ollama is running and Qwen models are loaded. Logs warning if not."""
+    try:
+        r = requests.get("http://127.0.0.1:11434/api/tags", timeout=3)
+        models = [m["name"] for m in r.json().get("models", [])]
+        if "qwen3.5:9b" not in models and "qwen3.5:4b" not in models:
+            logger.warning(
+                "Ollama running but Qwen models not loaded — tweet generation will use deterministic fallback"
+            )
+            return False
+        logger.info(f"Ollama OK — models: {models}")
+        return True
+    except Exception as e:
+        logger.warning(f"Ollama not reachable: {e} — tweet generation will use deterministic fallback")
+        return False
+
+
+def register_tweet_jobs(scheduler: BlockingScheduler, conn: sqlite3.Connection) -> None:
+    """Register one APScheduler job per tweet-eligible game, firing 1 hour before first pitch."""
+    ET = pytz.timezone("America/New_York")
+
+    rows = conn.execute(
+        """
+        SELECT game_id, home_team, away_team, tweet_text, first_pitch_et, tweet_scheduled_at
+        FROM daily_predictions
+        WHERE tweet_eligible = 1 AND tweeted = 0 AND tweet_text IS NOT NULL
+          AND game_date = date('now', 'localtime')
+        """
+    ).fetchall()
+
+    registered = 0
+    for row in rows:
+        fp_et_str = row["first_pitch_et"] if hasattr(row, "__getitem__") else row[4]
+        if not fp_et_str:
+            continue
+
+        try:
+            # first_pitch_et is stored as naive ET ISO string e.g. "2026-03-26T13:10:00"
+            naive_dt = datetime.fromisoformat(fp_et_str)
+            first_pitch_et_aware = ET.localize(naive_dt)
+        except Exception as exc:
+            logger.warning(f"register_tweet_jobs: could not parse first_pitch_et={fp_et_str!r}: {exc}")
+            continue
+
+        tweet_at_et = first_pitch_et_aware - timedelta(hours=1)
+
+        # Skip if tweet time is in the past
+        if tweet_at_et < datetime.now(ET):
+            _pipeline_log(
+                "register_tweet_jobs",
+                "skipped",
+                f"game {row['game_id']} tweet time already passed ({tweet_at_et.strftime('%I:%M %p ET')})",
+            )
+            continue
+
+        game_id = row["game_id"]
+        tweet_text = row["tweet_text"]
+        home_team = row["home_team"]
+        away_team = row["away_team"]
+
+        def make_tweet_job(gid: int, text: str, db_path: str):
+            def tweet_job():
+                import sqlite3 as _sqlite3
+                c = _sqlite3.connect(db_path)
+                c.row_factory = _sqlite3.Row
+                try:
+                    c.execute(
+                        "INSERT INTO pipeline_log (job, status, message) VALUES (?, ?, ?)",
+                        (
+                            f"tweet_game_{gid}",
+                            "completed",
+                            f"TWEET (not yet posted — no Twitter creds): {text[:100]}",
+                        ),
+                    )
+                    c.execute(
+                        "UPDATE daily_predictions SET tweeted=1, tweet_scheduled_at=? WHERE game_id=?",
+                        (datetime.now().isoformat(), gid),
+                    )
+                    c.commit()
+                finally:
+                    c.close()
+                print(f"\n[TWEET] {text}\n")
+
+            return tweet_job
+
+        scheduler.add_job(
+            make_tweet_job(game_id, tweet_text, DB_PATH),
+            trigger="date",
+            run_date=tweet_at_et,
+            id=f"tweet_{game_id}",
+            replace_existing=True,
+            name=f"Tweet: {away_team} @ {home_team}",
+        )
+        _pipeline_log(
+            "register_tweet_jobs",
+            "completed",
+            f"Scheduled tweet for game {game_id} at {tweet_at_et.strftime('%I:%M %p ET')}",
+        )
+        print(f"  Tweet scheduled: {away_team} @ {home_team} → {tweet_at_et.strftime('%I:%M %p ET')}")
+        registered += 1
+
+    logger.info(f"register_tweet_jobs: {registered} tweet job(s) scheduled")
+
+
+def morning_chain(scheduler: BlockingScheduler) -> None:
     """Full morning pipeline chain.
 
     Runs sequentially:
       ingest_yesterday → update_layer2 → evaluate_yesterday →
-      fetch_todays_games → fetch_odds → predict_today
+      fetch_todays_games → fetch_odds → predict_today → register_tweet_jobs
     """
     logger.info("=== morning_chain starting ===")
     conn = _open_conn()
@@ -165,20 +270,10 @@ def morning_chain() -> None:
         fetch_todays_games(conn)
         fetch_odds(conn)
         predict_today(conn)
+        register_tweet_jobs(scheduler, conn)
     finally:
         conn.close()
     logger.info("=== morning_chain complete ===")
-
-
-def evening_evaluate() -> None:
-    """Late-game cleanup evaluation sweep (11 PM ET)."""
-    logger.info("=== evening_evaluate starting ===")
-    conn = _open_conn()
-    try:
-        evaluate_yesterday(conn)
-    finally:
-        conn.close()
-    logger.info("=== evening_evaluate complete ===")
 
 
 # ---------------------------------------------------------------------------
@@ -236,11 +331,14 @@ def main() -> None:
     # 1. Ensure tables exist before anything else
     ensure_tables()
 
-    # 2. Build scheduler
+    # 2. Check Ollama availability (non-blocking — just logs)
+    check_ollama()
+
+    # 3. Build scheduler
     scheduler = BlockingScheduler(timezone=ET_TZ)
 
     scheduler.add_job(
-        morning_chain,
+        lambda: morning_chain(scheduler),
         trigger="cron",
         hour=8,
         minute=0,
@@ -251,28 +349,19 @@ def main() -> None:
         replace_existing=True,
     )
 
-    scheduler.add_job(
-        evening_evaluate,
-        trigger="cron",
-        hour=23,
-        minute=0,
-        id="evening_evaluate",
-        name="Evening Evaluate — late games (11 PM ET)",
-        misfire_grace_time=3600,
-        coalesce=True,
-        replace_existing=True,
-    )
+    # Note: 11 PM evaluate job removed — morning_chain already calls evaluate_yesterday
+    # which runs after midnight and catches all completed games from the prior day.
 
-    # 3. Attach listener
+    # 4. Attach listener
     scheduler.add_listener(
         _make_listener(scheduler),
         EVENT_JOB_EXECUTED | EVENT_JOB_ERROR,
     )
 
-    # 4. Print startup banner
+    # 5. Print startup banner
     _print_banner(scheduler)
 
-    # 5. Start (blocks until Ctrl+C)
+    # 6. Start (blocks until Ctrl+C)
     try:
         scheduler.start()
     except KeyboardInterrupt:

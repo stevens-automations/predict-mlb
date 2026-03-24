@@ -108,6 +108,63 @@ def _fetch_one(cur: sqlite3.Cursor, sql: str, params: tuple) -> Optional[dict]:
     return dict(zip(cols, row))
 
 
+def _get_team_pregame_with_fallback(
+    conn: sqlite3.Connection, game_id: int, side: str
+) -> tuple[Optional[dict], bool]:
+    """
+    Fetch team_pregame_stats for a game/side, with cold-start fallback to 2025.
+
+    Returns:
+        (row_dict_or_None, was_fallback_used)
+    """
+    cur = conn.cursor()
+
+    # Try current season first
+    row = _fetch_one(
+        cur,
+        "SELECT * FROM team_pregame_stats WHERE game_id = ? AND side = ?",
+        (game_id, side),
+    )
+    if row is not None and row.get("season_games") and row["season_games"] > 0:
+        return row, False
+
+    # Cold-start fallback — get team_id from games table
+    game_row = _fetch_one(
+        cur,
+        "SELECT home_team_id, away_team_id FROM games WHERE game_id = ?",
+        (game_id,),
+    )
+    if game_row is None:
+        return row, False  # return whatever we had (possibly empty row)
+
+    team_id = game_row["home_team_id"] if side == "home" else game_row["away_team_id"]
+    if team_id is None:
+        return row, False
+
+    # Get last 2025 row for this team (end-of-season stats)
+    fallback = _fetch_one(
+        cur,
+        """
+        SELECT tps.* FROM team_pregame_stats tps
+        JOIN games g ON tps.game_id = g.game_id
+        WHERE tps.team_id = ? AND g.season = 2025
+        ORDER BY g.game_date DESC
+        LIMIT 1
+        """,
+        (team_id,),
+    )
+
+    if fallback is not None:
+        import logging
+        logging.getLogger(__name__).info(
+            f"cold-start fallback: game_id={game_id} side={side} team_id={team_id} → using 2025 final row"
+        )
+        return fallback, True
+
+    # No fallback data either — return current (possibly None or zero-games) row
+    return row, False
+
+
 def build_feature_row(game_id: int, conn: sqlite3.Connection) -> dict:
     """
     Build the feature dict for a single game.
@@ -135,20 +192,13 @@ def build_feature_row(game_id: int, conn: sqlite3.Connection) -> dict:
     away_team_id = game_row["away_team_id"]
     venue_id = game_row["venue_id"]
 
-    # ── Team pregame stats ────────────────────────────────────────────────────
-    home_team = _fetch_one(
-        cur,
-        "SELECT * FROM team_pregame_stats WHERE game_id = ? AND side = 'home'",
-        (game_id,),
-    )
-    away_team = _fetch_one(
-        cur,
-        "SELECT * FROM team_pregame_stats WHERE game_id = ? AND side = 'away'",
-        (game_id,),
-    )
+    # ── Team pregame stats (with cold-start fallback) ─────────────────────────
+    home_team, home_fallback = _get_team_pregame_with_fallback(conn, game_id, "home")
+    away_team, away_fallback = _get_team_pregame_with_fallback(conn, game_id, "away")
+    cold_start_fallback = home_fallback or away_fallback
 
-    # Cold-start check
-    cold_start = False
+    # Cold-start check (< 15 games this season)
+    cold_start = cold_start_fallback  # fallback implies cold start
     if home_team is not None and (home_team.get("season_games") or 0) < 15:
         cold_start = True
     if away_team is not None and (away_team.get("season_games") or 0) < 15:
@@ -462,6 +512,7 @@ def build_feature_row(game_id: int, conn: sqlite3.Connection) -> dict:
     features["home_team_id"] = home_team_id
     features["away_team_id"] = away_team_id
     features["cold_start"] = cold_start
+    features["cold_start_fallback"] = cold_start_fallback
 
     return features
 

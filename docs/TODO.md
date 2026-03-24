@@ -57,3 +57,13 @@ Last updated: 2026-03-16
 - Include game context, key matchup angles, and confident but humble tone
 - Trigger: after predictions are generated, pass game context to Ollama API
 - Reference: server/tweet_scaffold.py for current format baseline
+
+## Results Tweet Strategy
+- Current: evaluate full-slate accuracy daily, log to pipeline_log (not tweeted yet)
+- Decision needed: tweet daily results or weekly summary?
+  - Daily: only tweet if tweeted-game accuracy is 50%+ AND sample ≥ 3 games
+  - Weekly: tweet season-to-date record every Monday morning
+- Long-term: consider selling full-slate picks access (subscription model)
+  - Tweet 2-3 "free" picks daily, full slate behind paywall
+  - Revenue model: $5-10/month for full daily slate + deeper insights
+  - See TWEET_STRATEGY.md for tweet format baseline
