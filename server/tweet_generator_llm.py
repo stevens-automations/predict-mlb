@@ -82,21 +82,22 @@ def generate_tweet(game: dict, shap_reasons: list[dict], model: str = DEFAULT_MO
     reasons = [r["human_summary"] for r in shap_reasons[:3] if r.get("human_summary")]
     reasons_text = "\n".join(f"- {r}" for r in reasons) if reasons else "(no specific factors available)"
 
-    # Market odds line — include whenever odds are available
-    if game.get("home_odds") or game.get("away_odds"):
-        winner_odds = game.get("home_odds") if game["predicted_winner"] == "home" else game.get("away_odds", "N/A")
-        odds_line = f"Market odds: {winner} at {winner_odds}"
-    else:
-        odds_line = ""
+    # Build team labels with odds inline, e.g. "New York Mets (-120)"
+    home_odds = game.get("home_odds") or ""
+    away_odds = game.get("away_odds") or ""
+    home_label = f"{game['home_team']} ({home_odds})" if home_odds else game['home_team']
+    away_label = f"{game['away_team']} ({away_odds})" if away_odds else game['away_team']
+    winner_label = home_label if game["predicted_winner"] == "home" else away_label
 
     prompt = f"""Write one MLB prediction tweet. Lead with the most interesting insight, then state the pick. Be factual and direct — not hype-y, not dramatic, not like a bot. No hashtags. No emojis. No closing one-liners. Max 200 characters. Do not mention AI, models, or algorithms. Write in present tense.
 
-Game: {game['away_team']} @ {game['home_team']}
-Pick: {winner} ({win_pct}%)
-{odds_line}
+When mentioning teams, always include their odds in parentheses exactly as shown. Example: "New York Mets (-120)" or "Pittsburgh Pirates (+145)".
+
+Game: {away_label} @ {home_label}
+Pick: {winner_label} to win ({win_pct}% confidence)
 {value_note}
 
-Why {winner}:
+Why {winner_label}:
 {reasons_text}
 
 Tweet:"""

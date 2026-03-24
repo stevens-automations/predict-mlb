@@ -28,7 +28,7 @@ from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
 from apscheduler.schedulers.blocking import BlockingScheduler
 
 # --- Job imports ---
-from scripts.jobs.evaluate_yesterday import evaluate_yesterday
+from scripts.jobs.evaluate_yesterday import evaluate_yesterday, generate_weekly_recap
 from scripts.jobs.fetch_odds import fetch_odds
 from scripts.jobs.fetch_todays_games import fetch_todays_games
 from scripts.jobs.ingest_yesterday import ingest_yesterday
@@ -267,6 +267,10 @@ def morning_chain(scheduler: BlockingScheduler) -> None:
         ingest_yesterday(conn)
         update_layer2(conn)
         evaluate_yesterday(conn)
+        if datetime.now(ET_TZ).weekday() == 0:  # Monday
+            recap = generate_weekly_recap(conn)
+            _pipeline_log('weekly_recap', 'completed', recap)
+            print(f'[WEEKLY RECAP] {recap}')
         fetch_todays_games(conn)
         fetch_odds(conn)
         predict_today(conn)
