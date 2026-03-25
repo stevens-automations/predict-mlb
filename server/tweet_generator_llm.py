@@ -15,6 +15,51 @@ OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
 DEFAULT_MODEL = "qwen3.5:9b"
 FALLBACK_MODEL = "qwen3.5:4b"
 
+SYSTEM_PROMPT = """You write MLB game prediction tweets for a data-driven prediction account.
+
+VOICE: Analytical sports fan. Not a betting service — use "prediction" or "taking" not "pick" or "bet".
+FORMAT: One tweet. Max 240 characters. No hashtags. No emojis. No filler phrases. No "Stay tuned" or similar.
+STATS: Use only the stats provided. Do not add stats, records, or claims you weren't given.
+STRUCTURE: Lead with the prediction (team + odds). Then give 1-2 specific reasons why. Keep it tight.
+
+STAT DEFINITIONS (for context — do not explain these in the tweet):
+- Win rate: % of games won this season
+- Run differential: average runs scored minus runs allowed per game (positive = good)
+- ERA: Earned Run Average — runs a pitcher allows per 9 innings (lower is better; league avg ~4.20)
+- Last 10: win-loss record over last 10 games
+
+EXAMPLE TWEETS:
+Example 1:
+Prediction context: Cleveland Guardians (-152) over Kansas City Royals (+130), 62% confidence.
+Cleveland: win rate 59%, run diff +1.4/game, last 10: 7-3. KC starter ERA 5.02 this season (above league avg).
+Tweet: Taking the Cleveland Guardians (-152) tonight. They're 7-3 in their last 10 and outscoring opponents by +1.4 runs/game. KC's starter has a 5.02 ERA — well above average.
+
+Example 2:
+Prediction context: New York Mets (-142) over Pittsburgh Pirates (+122), 66% confidence.
+Mets: starter ERA 2.80 this season (well below league avg), run diff +1.8/game. Pirates: win rate 41%.
+Tweet: New York Mets (-142) at home tonight. Their starter is posting a 2.80 ERA this season and they're outscoring opponents by +1.8 runs/game — solid edge over Pittsburgh (+122).
+
+Now write one tweet for the game below. Follow the same format."""
+
+
+def _build_user_prompt(ctx: dict) -> str:
+    w_stats = "\n".join(f"  - {s}" for s in ctx["winner_stats"]) or "  - (limited data available)"
+    l_stats = "\n".join(f"  - {s}" for s in ctx["loser_stats"]) or "  - (limited data available)"
+
+    winner_label = f"{ctx['winner']} ({ctx['winner_odds']})" if ctx['winner_odds'] else ctx['winner']
+    loser_label = f"{ctx['loser']} ({ctx['loser_odds']})" if ctx['loser_odds'] else ctx['loser']
+    value = f"\nNote: {ctx['value_note']}" if ctx['value_note'] else ""
+
+    return f"""Prediction context: {winner_label} over {loser_label}, {ctx['win_pct']}% confidence.{value}
+
+{ctx['winner']} stats:
+{w_stats}
+
+{ctx['loser']} stats:
+{l_stats}
+
+Tweet:"""
+
 
 def _enforce_char_limit(text: str, limit: int = 275) -> str:
     """Truncate at word boundary if over limit."""
@@ -24,20 +69,23 @@ def _enforce_char_limit(text: str, limit: int = 275) -> str:
     return truncated.rstrip('.,;:') + '…'
 
 
-def _call_ollama(prompt: str, model: str, timeout: int = 15) -> str | None:
+def _call_ollama(prompt: str, model: str, timeout: int = 15, system: str | None = None) -> str | None:
     """
     Call Ollama API. Returns stripped tweet text or None on failure.
     """
     try:
+        payload = {
+            "model": model,
+            "prompt": prompt,
+            "stream": False,
+            "think": False,  # disable Qwen3.5 extended thinking mode
+            "options": {"temperature": 0.75, "num_predict": 120},
+        }
+        if system:
+            payload["system"] = system
         resp = requests.post(
             OLLAMA_URL,
-            json={
-                "model": model,
-                "prompt": prompt,
-                "stream": False,
-                "think": False,  # disable Qwen3.5 extended thinking mode
-                "options": {"temperature": 0.75, "num_predict": 120},
-            },
+            json=payload,
             timeout=timeout,
         )
         if resp.status_code == 200:
@@ -52,7 +100,12 @@ def _call_ollama(prompt: str, model: str, timeout: int = 15) -> str | None:
     return None
 
 
-def generate_tweet(game: dict, shap_reasons: list[dict], model: str = DEFAULT_MODEL) -> str:
+def generate_tweet(
+    game: dict,
+    shap_reasons: list[dict],
+    feature_dict: dict | None = None,
+    model: str = DEFAULT_MODEL,
+) -> str:
     """
     Generate a tweet using local Qwen via Ollama.
     Falls back: 9B → 4B → deterministic scaffold.
@@ -62,44 +115,52 @@ def generate_tweet(game: dict, shap_reasons: list[dict], model: str = DEFAULT_MO
               confidence_tier, home_odds, away_odds, odds_gap (optional),
               implied_home_ml (optional).
         shap_reasons: list of SHAP reason dicts from explainer.explain_prediction().
+        feature_dict: optional feature dict; if provided, uses build_tweet_context
+                      for deterministic context building and structured system prompt.
         model: Ollama model name (default: qwen3.5:9b).
 
     Returns:
         Tweet string (<= 280 chars).
     """
-    winner = game["home_team"] if game["predicted_winner"] == "home" else game["away_team"]
-    loser = game["away_team"] if game["predicted_winner"] == "home" else game["home_team"]
-    prob = game["home_win_prob"] if game["predicted_winner"] == "home" else 1 - game["home_win_prob"]
-    win_pct = int(prob * 100)
+    # Build prompt using deterministic context if feature_dict is available
+    if feature_dict is not None:
+        from scripts.inference.explainer import build_tweet_context
+        ctx = build_tweet_context(game, feature_dict, shap_reasons)
+        prompt = _build_user_prompt(ctx)
+        system = SYSTEM_PROMPT
+    else:
+        # Legacy path: build prompt from SHAP reasons directly
+        winner = game["home_team"] if game["predicted_winner"] == "home" else game["away_team"]
+        loser = game["away_team"] if game["predicted_winner"] == "home" else game["home_team"]
+        prob = game["home_win_prob"] if game["predicted_winner"] == "home" else 1 - game["home_win_prob"]
+        win_pct = int(prob * 100)
 
-    # Value note — only when odds gap is meaningful
-    value_note = ""
-    if game.get("odds_gap") and abs(game["odds_gap"]) >= 30:
-        direction = "underdogs" if game.get("implied_home_ml", 0) > 0 else "favorites"
-        value_note = f"Market has them as {direction} but we disagree."
+        value_note = ""
+        if game.get("odds_gap") and abs(game["odds_gap"]) >= 30:
+            direction = "underdogs" if game.get("implied_home_ml", 0) > 0 else "favorites"
+            value_note = f"Market has them as {direction} but we disagree."
 
-    # Use humanize_reasons to replace generic "home"/"away" with actual team names
-    from scripts.inference.explainer import humanize_reasons
-    supporting = [r for r in shap_reasons if r.get("direction") == game["predicted_winner"] and r.get("human_summary")]
-    named_reasons = humanize_reasons(supporting[:3], game["home_team"], game["away_team"])
-    reasons_text = "\n".join(f"- {r}" for r in named_reasons) if named_reasons else ""
+        from scripts.inference.explainer import humanize_reasons
+        supporting = [r for r in shap_reasons if r.get("direction") == game["predicted_winner"] and r.get("human_summary")]
+        named_reasons = humanize_reasons(supporting[:3], game["home_team"], game["away_team"])
+        reasons_text = "\n".join(f"- {r}" for r in named_reasons) if named_reasons else ""
 
-    # Build team labels with odds inline, e.g. "New York Mets (-120)"
-    home_odds = game.get("home_odds") or ""
-    away_odds = game.get("away_odds") or ""
-    home_label = f"{game['home_team']} ({home_odds})" if home_odds else game['home_team']
-    away_label = f"{game['away_team']} ({away_odds})" if away_odds else game['away_team']
-    winner_label = home_label if game["predicted_winner"] == "home" else away_label
-    loser_label = away_label if game["predicted_winner"] == "home" else home_label
+        home_odds = game.get("home_odds") or ""
+        away_odds = game.get("away_odds") or ""
+        home_label = f"{game['home_team']} ({home_odds})" if home_odds else game['home_team']
+        away_label = f"{game['away_team']} ({away_odds})" if away_odds else game['away_team']
+        winner_label = home_label if game["predicted_winner"] == "home" else away_label
+        loser_label = away_label if game["predicted_winner"] == "home" else home_label
 
-    reasons_block = f"\nKey reasons:\n{reasons_text}" if reasons_text else ""
+        reasons_block = f"\nKey reasons:\n{reasons_text}" if reasons_text else ""
 
-    prompt = f"""Write one MLB prediction tweet. Be factual, clear, and direct. No hashtags. No emojis. Max 240 characters. Do not mention AI or models.
+        prompt = f"""Write one MLB prediction tweet. Be factual, clear, and direct. No hashtags. No emojis. Max 240 characters. Do not mention AI or models.
 
 Our pick: {winner_label} to defeat {loser_label} ({win_pct}% confidence).
 {value_note}{reasons_block}
 
 Write a single tweet that states the pick clearly (with odds) and briefly explains why. Every stat mentioned must come from the "Key reasons" above — do not invent anything. Use the team names exactly as written."""
+        system = None
 
     # Try primary model first (9B), then fallback (4B)
     models_to_try = [model]
@@ -107,7 +168,7 @@ Write a single tweet that states the pick clearly (with odds) and briefly explai
         models_to_try.append(FALLBACK_MODEL)
 
     for m in models_to_try:
-        tweet = _call_ollama(prompt, m)
+        tweet = _call_ollama(prompt, m, system=system)
         if tweet and len(tweet) <= 280:
             return _enforce_char_limit(tweet)
         elif tweet:
@@ -118,7 +179,10 @@ Write a single tweet that states the pick clearly (with odds) and briefly explai
     try:
         from server.tweet_scaffold import format_prediction_tweet
         lines = format_prediction_tweet([game])
-        result = lines[0] if lines else f"{winner} ({win_pct}%) over {loser}"
+        result = lines[0] if lines else f"{winner if feature_dict is None else game['home_team']} ({win_pct if feature_dict is None else int((game['home_win_prob'] if game['predicted_winner'] == 'home' else 1 - game['home_win_prob']) * 100)}%) over {loser if feature_dict is None else game['away_team']}"
         return _enforce_char_limit(result)
     except Exception:
-        return _enforce_char_limit(f"{winner} ({win_pct}%) over {loser}")
+        winner_fb = game["home_team"] if game["predicted_winner"] == "home" else game["away_team"]
+        prob_fb = game["home_win_prob"] if game["predicted_winner"] == "home" else 1 - game["home_win_prob"]
+        loser_fb = game["away_team"] if game["predicted_winner"] == "home" else game["home_team"]
+        return _enforce_char_limit(f"{winner_fb} ({int(prob_fb * 100)}%) over {loser_fb}")
