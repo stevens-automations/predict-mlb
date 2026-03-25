@@ -78,10 +78,11 @@ def generate_tweet(game: dict, shap_reasons: list[dict], model: str = DEFAULT_MO
         direction = "underdogs" if game.get("implied_home_ml", 0) > 0 else "favorites"
         value_note = f"Market has them as {direction} but we disagree."
 
-    # Only use SHAP reasons that support the predicted winner (filter out contradicting reasons)
+    # Use humanize_reasons to replace generic "home"/"away" with actual team names
+    from scripts.inference.explainer import humanize_reasons
     supporting = [r for r in shap_reasons if r.get("direction") == game["predicted_winner"] and r.get("human_summary")]
-    reasons = [r["human_summary"] for r in supporting[:3]]
-    reasons_text = "\n".join(f"- {r}" for r in reasons) if reasons else "(statistical edge favors this team)"
+    named_reasons = humanize_reasons(supporting[:3], game["home_team"], game["away_team"])
+    reasons_text = "\n".join(f"- {r}" for r in named_reasons) if named_reasons else ""
 
     # Build team labels with odds inline, e.g. "New York Mets (-120)"
     home_odds = game.get("home_odds") or ""
@@ -89,19 +90,16 @@ def generate_tweet(game: dict, shap_reasons: list[dict], model: str = DEFAULT_MO
     home_label = f"{game['home_team']} ({home_odds})" if home_odds else game['home_team']
     away_label = f"{game['away_team']} ({away_odds})" if away_odds else game['away_team']
     winner_label = home_label if game["predicted_winner"] == "home" else away_label
+    loser_label = away_label if game["predicted_winner"] == "home" else home_label
 
-    prompt = f"""Write one MLB prediction tweet. Lead with the most interesting insight, then state the pick. Be factual and direct — not hype-y, not dramatic, not like a bot. No hashtags. No emojis. No closing one-liners. Max 200 characters. Do not mention AI, models, or algorithms. Write in present tense.
+    reasons_block = f"\nKey reasons:\n{reasons_text}" if reasons_text else ""
 
-When mentioning teams, always include their odds in parentheses exactly as shown. Example: "New York Mets (-120)" or "Pittsburgh Pirates (+145)".
+    prompt = f"""Write one MLB prediction tweet. Be factual, clear, and direct. No hashtags. No emojis. Max 240 characters. Do not mention AI or models.
 
-Game: {away_label} @ {home_label}
-Pick: {winner_label} to win ({win_pct}% confidence)
-{value_note}
+Our pick: {winner_label} to defeat {loser_label} ({win_pct}% confidence).
+{value_note}{reasons_block}
 
-Why {winner_label}:
-{reasons_text}
-
-Tweet:"""
+Write a single tweet that states the pick clearly (with odds) and briefly explains why. Every stat mentioned must come from the "Key reasons" above — do not invent anything. Use the team names exactly as written."""
 
     # Try primary model first (9B), then fallback (4B)
     models_to_try = [model]
