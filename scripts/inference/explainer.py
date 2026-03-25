@@ -229,3 +229,35 @@ def explain_prediction(feature_dict: dict, model_bundle: dict) -> list[dict]:
     # Sort by |shap| descending, return top 5
     results.sort(key=lambda x: abs(x["shap"]), reverse=True)
     return results[:5]
+
+
+def humanize_reasons(reasons: list[dict], home_team: str, away_team: str) -> list[str]:
+    """
+    Replace generic 'home'/'away' references in SHAP summaries with real team names.
+    Call this before passing reasons to the tweet generator.
+
+    Args:
+        reasons: output of explain_prediction()
+        home_team: e.g. "New York Mets"
+        away_team: e.g. "Pittsburgh Pirates"
+
+    Returns:
+        List of human-readable strings with real team names.
+    """
+    out = []
+    for r in reasons:
+        s = r.get("human_summary", "")
+        if not s:
+            continue
+        # Replace directional team references with actual names
+        s = s.replace("home team", home_team)
+        s = s.replace("away team", away_team)
+        s = s.replace("home starter", f"{home_team} starter")
+        s = s.replace("away starter", f"{away_team} starter")
+        s = s.replace("home bullpen", f"{home_team} bullpen")
+        s = s.replace("away bullpen", f"{away_team} bullpen")
+        s = s.replace("home lineup", f"{home_team} lineup")
+        s = s.replace("away lineup", f"{away_team} lineup")
+        s = s.replace("visiting lineup", f"{away_team} lineup")
+        out.append(s)
+    return out
