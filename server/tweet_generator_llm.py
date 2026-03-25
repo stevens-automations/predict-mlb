@@ -135,29 +135,30 @@ def _deterministic_tweet(game: dict, shap_reasons: list, feature_dict: dict = No
         w_win = _fget(f"{wp}_team_season_win_pct")
         l_win = _fget(f"{lp}_team_season_win_pct")
         if w_win is not None and l_win is not None and w_win > l_win:
-            reasons.append(f"{winner} holds a {w_win:.0%} win rate vs {loser}'s {l_win:.0%}")
+            loser_poss = f"{loser}'" if loser.endswith("s") else f"{loser}'s"
+            reasons.append(f"{winner} holds a {w_win:.0%} win rate vs {loser_poss} {l_win:.0%}")
 
         w_rd = _fget(f"{wp}_team_season_run_diff_per_game")
         l_rd = _fget(f"{lp}_team_season_run_diff_per_game")
         if w_rd is not None and l_rd is not None and w_rd > l_rd:
-            reasons.append(f"run differential edge: {winner} {w_rd:+.1f} vs {loser} {l_rd:+.1f} per game")
+            reasons.append(f"Run differential: {winner} {w_rd:+.1f} vs {loser} {l_rd:+.1f} per game")
 
         w_era = _fget(f"{wp}_starter_era")
         l_era = _fget(f"{lp}_starter_era")
         if w_era is not None and l_era is not None and w_era < l_era:
-            reasons.append(f"starter ERA: {winner} {w_era:.2f} vs {loser} {l_era:.2f}")
+            reasons.append(f"Starter ERA: {winner} {w_era:.2f} vs {loser} {l_era:.2f}")
         elif w_era is None and l_era is None:
             w_cera = _fget(f"{wp}_starter_career_era")
             l_cera = _fget(f"{lp}_starter_career_era")
             if w_cera is not None and l_cera is not None and w_cera < l_cera:
-                reasons.append(f"career starter ERA: {winner} {w_cera:.2f} vs {loser} {l_cera:.2f}")
+                reasons.append(f"Career starter ERA: {winner} {w_cera:.2f} vs {loser} {l_cera:.2f}")
 
         w_r10 = _fget(f"{wp}_team_rolling_last10_win_pct")
         l_r10 = _fget(f"{lp}_team_rolling_last10_win_pct")
         if w_r10 is not None and l_r10 is not None and w_r10 > l_r10:
             w10 = round(w_r10 * 10)
             l10 = round(l_r10 * 10)
-            reasons.append(f"last 10: {winner} {w10}-{10-w10} vs {loser} {l10}-{10-l10}")
+            reasons.append(f"Last 10 games: {winner} {w10}-{10-w10} vs {loser} {l10}-{10-l10}")
 
     reason_strs = reasons[:2]
 
