@@ -78,9 +78,10 @@ def generate_tweet(game: dict, shap_reasons: list[dict], model: str = DEFAULT_MO
         direction = "underdogs" if game.get("implied_home_ml", 0) > 0 else "favorites"
         value_note = f"Market has them as {direction} but we disagree."
 
-    # Top 2-3 readable SHAP reasons
-    reasons = [r["human_summary"] for r in shap_reasons[:3] if r.get("human_summary")]
-    reasons_text = "\n".join(f"- {r}" for r in reasons) if reasons else "(no specific factors available)"
+    # Only use SHAP reasons that support the predicted winner (filter out contradicting reasons)
+    supporting = [r for r in shap_reasons if r.get("direction") == game["predicted_winner"] and r.get("human_summary")]
+    reasons = [r["human_summary"] for r in supporting[:3]]
+    reasons_text = "\n".join(f"- {r}" for r in reasons) if reasons else "(statistical edge favors this team)"
 
     # Build team labels with odds inline, e.g. "New York Mets (-120)"
     home_odds = game.get("home_odds") or ""
