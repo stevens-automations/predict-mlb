@@ -261,3 +261,123 @@ def humanize_reasons(reasons: list[dict], home_team: str, away_team: str) -> lis
         s = s.replace("visiting lineup", f"{away_team} lineup")
         out.append(s)
     return out
+
+
+def build_tweet_context(
+    game: dict,
+    feature_dict: dict,
+    shap_reasons: list[dict],
+) -> dict:
+    """
+    Build a fully-structured, factual context dict for tweet generation.
+    All stats use real team names and absolute values (not deltas).
+    Only stats we actually have are included — nothing inferred or invented.
+
+    Returns a dict with:
+        winner, loser, winner_odds, loser_odds, win_pct,
+        winner_stats: list of plain English stat strings,
+        loser_stats: list of plain English stat strings,
+        value_note: str (empty if no odds gap)
+    """
+    home = game["home_team"]
+    away = game["away_team"]
+    pred = game["predicted_winner"]
+    winner = home if pred == "home" else away
+    loser = away if pred == "home" else home
+    prob = game["home_win_prob"] if pred == "home" else 1 - game["home_win_prob"]
+    win_pct = int(prob * 100)
+
+    home_odds = game.get("home_odds") or ""
+    away_odds = game.get("away_odds") or ""
+    winner_odds = home_odds if pred == "home" else away_odds
+    loser_odds = away_odds if pred == "home" else home_odds
+
+    # Value note
+    value_note = ""
+    if game.get("odds_gap") and abs(game["odds_gap"]) >= 30:
+        if (pred == "home" and int(home_odds or "0") > 0) or (pred == "away" and int(away_odds or "0") > 0):
+            value_note = f"We see value — market has {winner} as underdogs."
+
+    # Build stat strings from feature_dict — use ABSOLUTE values for both teams, not deltas
+    # Only include a stat if both sides are non-null
+    LEAGUE_AVG_ERA = 4.20  # approximate MLB average starter ERA
+
+    winner_stats = []
+    loser_stats = []
+
+    # Prefix helpers
+    wp = "home" if pred == "home" else "away"
+    lp = "away" if pred == "home" else "home"
+
+    def _fget(key):
+        v = feature_dict.get(key)
+        try:
+            return float(v) if v is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    # Season win rate (both teams)
+    w_win = _fget(f"{wp}_team_season_win_pct")
+    l_win = _fget(f"{lp}_team_season_win_pct")
+    if w_win is not None:
+        winner_stats.append(f"Win rate this season: {w_win:.0%}")
+    if l_win is not None:
+        loser_stats.append(f"Win rate this season: {l_win:.0%}")
+
+    # Run differential per game
+    w_rd = _fget(f"{wp}_team_season_run_diff_per_game")
+    l_rd = _fget(f"{lp}_team_season_run_diff_per_game")
+    if w_rd is not None:
+        sign = "+" if w_rd >= 0 else ""
+        winner_stats.append(f"Run differential per game: {sign}{w_rd:.1f}")
+    if l_rd is not None:
+        sign = "+" if l_rd >= 0 else ""
+        loser_stats.append(f"Run differential per game: {sign}{l_rd:.1f}")
+
+    # Recent form (last 10)
+    w_r10 = _fget(f"{wp}_team_rolling_last10_win_pct")
+    l_r10 = _fget(f"{lp}_team_rolling_last10_win_pct")
+    if w_r10 is not None:
+        w10 = round(w_r10 * 10)
+        winner_stats.append(f"Last 10 games: {w10}-{10 - w10}")
+    if l_r10 is not None:
+        l10 = round(l_r10 * 10)
+        loser_stats.append(f"Last 10 games: {l10}-{10 - l10}")
+
+    # Starter ERA (season)
+    w_era = _fget(f"{wp}_starter_era")
+    l_era = _fget(f"{lp}_starter_era")
+    if w_era is not None:
+        vs_avg = f" (league avg ~{LEAGUE_AVG_ERA:.2f})" if abs(w_era - LEAGUE_AVG_ERA) > 0.5 else ""
+        winner_stats.append(f"Starting pitcher ERA this season: {w_era:.2f}{vs_avg}")
+    if l_era is not None:
+        vs_avg = f" (league avg ~{LEAGUE_AVG_ERA:.2f})" if abs(l_era - LEAGUE_AVG_ERA) > 0.5 else ""
+        loser_stats.append(f"Starting pitcher ERA this season: {l_era:.2f}{vs_avg}")
+
+    # Career ERA fallback if no season ERA
+    if w_era is None:
+        w_cera = _fget(f"{wp}_starter_career_era")
+        if w_cera is not None:
+            winner_stats.append(f"Starting pitcher career ERA: {w_cera:.2f}")
+    if l_era is None:
+        l_cera = _fget(f"{lp}_starter_career_era")
+        if l_cera is not None:
+            loser_stats.append(f"Starting pitcher career ERA: {l_cera:.2f}")
+
+    # Bullpen ERA
+    w_bp = _fget(f"{wp}_bullpen_season_bullpen_era")
+    l_bp = _fget(f"{lp}_bullpen_season_bullpen_era")
+    if w_bp is not None and l_bp is not None and abs(w_bp - l_bp) > 0.4:
+        winner_stats.append(f"Bullpen ERA this season: {w_bp:.2f}")
+        loser_stats.append(f"Bullpen ERA this season: {l_bp:.2f}")
+
+    return {
+        "winner": winner,
+        "loser": loser,
+        "winner_odds": winner_odds,
+        "loser_odds": loser_odds,
+        "win_pct": win_pct,
+        "winner_stats": winner_stats[:3],  # cap at 3 per team
+        "loser_stats": loser_stats[:3],
+        "value_note": value_note,
+    }

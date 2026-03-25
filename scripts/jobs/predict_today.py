@@ -281,7 +281,7 @@ def predict_today(
                 if tweet_eligible:
                     try:
                         from server.tweet_generator_llm import generate_tweet
-                        tweet_text = generate_tweet(prediction_row, shap_reasons)
+                        tweet_text = generate_tweet(prediction_row, shap_reasons, feature_dict=features)
                     except Exception as ex:
                         _log(conn, JOB, "warn", f"game_id={game_id}: tweet gen failed: {ex}")
 
