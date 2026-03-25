@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 
 import requests
+USE_LLM = False  # Set to True mid-season when Qwen tweets are tuned
 
 OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
 DEFAULT_MODEL = "qwen3.5:9b"
@@ -100,6 +101,73 @@ def _call_ollama(prompt: str, model: str, timeout: int = 15, system: str | None 
     return None
 
 
+def _deterministic_tweet(game: dict, shap_reasons: list, feature_dict: dict = None) -> str:
+    """
+    Generate a clean, factual, deterministic tweet. No LLM involved.
+    Format: "Prediction: [Winner] ([odds]) to defeat [Loser] ([odds]). [1-2 stat reasons]."
+    """
+    pred = game["predicted_winner"]
+    winner = game["home_team"] if pred == "home" else game["away_team"]
+    loser = game["away_team"] if pred == "home" else game["home_team"]
+    prob = game["home_win_prob"] if pred == "home" else 1 - game["home_win_prob"]
+    win_pct = int(prob * 100)
+
+    home_odds = game.get("home_odds") or ""
+    away_odds = game.get("away_odds") or ""
+    winner_odds = home_odds if pred == "home" else away_odds
+    loser_odds = away_odds if pred == "home" else home_odds
+
+    winner_label = f"{winner} ({winner_odds})" if winner_odds else winner
+    loser_label = f"{loser} ({loser_odds})" if loser_odds else loser
+
+    reasons = []
+    if feature_dict:
+        wp = "home" if pred == "home" else "away"
+        lp = "away" if pred == "home" else "home"
+
+        def _fget(key):
+            v = feature_dict.get(key)
+            try:
+                return float(v) if v is not None else None
+            except (TypeError, ValueError):
+                return None
+
+        w_win = _fget(f"{wp}_team_season_win_pct")
+        l_win = _fget(f"{lp}_team_season_win_pct")
+        if w_win is not None and l_win is not None and w_win > l_win:
+            reasons.append(f"{winner} holds a {w_win:.0%} win rate vs {loser}'s {l_win:.0%}")
+
+        w_rd = _fget(f"{wp}_team_season_run_diff_per_game")
+        l_rd = _fget(f"{lp}_team_season_run_diff_per_game")
+        if w_rd is not None and l_rd is not None and w_rd > l_rd:
+            reasons.append(f"run differential edge: {winner} {w_rd:+.1f} vs {loser} {l_rd:+.1f} per game")
+
+        w_era = _fget(f"{wp}_starter_era")
+        l_era = _fget(f"{lp}_starter_era")
+        if w_era is not None and l_era is not None and w_era < l_era:
+            reasons.append(f"starter ERA: {winner} {w_era:.2f} vs {loser} {l_era:.2f}")
+        elif w_era is None and l_era is None:
+            w_cera = _fget(f"{wp}_starter_career_era")
+            l_cera = _fget(f"{lp}_starter_career_era")
+            if w_cera is not None and l_cera is not None and w_cera < l_cera:
+                reasons.append(f"career starter ERA: {winner} {w_cera:.2f} vs {loser} {l_cera:.2f}")
+
+        w_r10 = _fget(f"{wp}_team_rolling_last10_win_pct")
+        l_r10 = _fget(f"{lp}_team_rolling_last10_win_pct")
+        if w_r10 is not None and l_r10 is not None and w_r10 > l_r10:
+            w10 = round(w_r10 * 10)
+            l10 = round(l_r10 * 10)
+            reasons.append(f"last 10: {winner} {w10}-{10-w10} vs {loser} {l10}-{10-l10}")
+
+    reason_strs = reasons[:2]
+
+    tweet = f"Prediction: {winner_label} to defeat {loser_label} ({win_pct}% confidence)."
+    if reason_strs:
+        tweet += " " + "; ".join(r.capitalize() if not r[0].isupper() else r for r in reason_strs) + "."
+
+    return _enforce_char_limit(tweet)
+
+
 def generate_tweet(
     game: dict,
     shap_reasons: list[dict],
@@ -122,6 +190,9 @@ def generate_tweet(
     Returns:
         Tweet string (<= 280 chars).
     """
+    if not USE_LLM or feature_dict is None:
+        return _deterministic_tweet(game, shap_reasons, feature_dict)
+
     # Build prompt using deterministic context if feature_dict is available
     if feature_dict is not None:
         from scripts.inference.explainer import build_tweet_context
