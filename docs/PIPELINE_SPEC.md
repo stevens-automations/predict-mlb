@@ -96,7 +96,8 @@ APScheduler fires the first job; each job triggers the next on completion.
 - Post via Tweepy
 - Update `daily_predictions.tweeted = 1`
 
-### 11:00 PM — `evaluate_yesterday` cleanup sweep
+### Monday 8:00 AM (in morning chain)
+`generate_weekly_recap` — season W/L record + biggest upset callout logged to pipeline_log
 - Re-run evaluation for any games that finished late
 - Update any remaining NULL `did_predict_correct` rows
 

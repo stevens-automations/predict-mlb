@@ -19,7 +19,7 @@ Season start: **March 26, 2026 (Wednesday)**
 | 9:30 AM | `tweet_results` | Post yesterday's result accuracy tweet |
 | 11:00 AM | `lineup_sweep` | Re-fetch announced lineups, recompute handedness features |
 | 6:30 PM | `lock_predictions` | Final check, lock all predictions before first pitch |
-| 11:30 PM | `ingest_results` | Pull final scores, update outcomes, log daily accuracy |
+| Monday 8 AM | `weekly_recap` | Season W/L + biggest upset callout (logged, not yet posted) |
 
 ---
 
