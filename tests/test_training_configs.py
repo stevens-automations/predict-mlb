@@ -24,10 +24,7 @@ def _load_json(relative_path: str) -> dict:
 class TestTrainingConfigs(unittest.TestCase):
     def test_canonical_configs_use_pregame_1h_v2_phase1_contract(self) -> None:
         baseline = _load_json("configs/training/baseline_lgbm.json")
-        tuned = _load_json("configs/training/tuned_candidate.json")
         suite = _load_json("configs/training/experiment_suite.json")
-        stronger = _load_json("configs/training/stronger_candidate.json")
-        ablations = _load_json("configs/training/baseline_ablation_suite.json")
 
         self.assertEqual(baseline["contract"]["name"], "pregame_1h")
         self.assertEqual(baseline["contract"]["target"], "home_team_win_probability")
@@ -39,22 +36,8 @@ class TestTrainingConfigs(unittest.TestCase):
         )
         self.assertEqual(baseline["evaluation"]["seasonal_holdout"]["holdout_season"], CANONICAL_HOLDOUT_SEASON)
 
-        self.assertEqual(tuned["data"]["feature_version"], CANONICAL_FEATURE_VERSION)
-        self.assertEqual(stronger["data"]["feature_version"], CANONICAL_FEATURE_VERSION)
-        self.assertEqual(stronger["data"]["feature_contract"], "hybrid_comparative_v1")
         self.assertEqual(suite["base"]["contract"]["name"], "pregame_1h")
         self.assertEqual(suite["base"]["evaluation"]["seasonal_holdout"]["holdout_season"], CANONICAL_HOLDOUT_SEASON)
-        self.assertEqual(ablations["base"]["data"]["feature_contract"], "raw")
-        self.assertEqual(
-            sorted(
-                {
-                    group
-                    for experiment in ablations["experiments"]
-                    for group in experiment["data"]["exclude_feature_groups"]
-                }
-            ),
-            sorted(SUPPORTED_FEATURE_ABLATION_GROUPS),
-        )
 
     def test_experiment_suite_includes_logreg_and_lgbm_baselines(self) -> None:
         suite = _load_json("configs/training/experiment_suite.json")

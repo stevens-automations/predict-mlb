@@ -4,7 +4,7 @@ Fetch today's MLB odds from The Odds API v4.
 
 Function: fetch_odds(conn) -> dict
 
-- Check if data/todays_odds.json exists and is < 23 hours old → use cached version
+- Check if data/todays_odds.json exists and is < 6 hours old → use cached version
 - Otherwise: call The Odds API v4 (read key from .env as ODDS_API_KEY)
 - For each game: find BEST odds per team across all bookmakers
   (highest value = most favorable to underdog)
@@ -38,7 +38,7 @@ from dotenv import load_dotenv
 ROOT = Path(__file__).resolve().parents[2]
 ODDS_CACHE_PATH = ROOT / "data" / "todays_odds.json"
 ODDS_API_URL = "https://api.the-odds-api.com/v4/sports/baseball_mlb/odds"
-CACHE_MAX_AGE_HOURS = 23
+CACHE_MAX_AGE_HOURS = 6
 
 CREATE_PIPELINE_LOG_SQL = """
 CREATE TABLE IF NOT EXISTS pipeline_log (
@@ -61,7 +61,7 @@ def _log(conn: sqlite3.Connection, job: str, status: str, message: str, duration
 
 
 def _load_cached_odds() -> Optional[list]:
-    """Return cached odds data if file exists and is < 23 hours old."""
+    """Return cached odds data if file exists and is < 6 hours old."""
     if not ODDS_CACHE_PATH.exists():
         return None
     mtime = ODDS_CACHE_PATH.stat().st_mtime

@@ -80,7 +80,21 @@ def ingest_yesterday(conn: sqlite3.Connection, date_str: Optional[str] = None) -
     logger.info(f"[{JOB}] ingesting {yesterday}")
 
     try:
-        schedule = statsapi.schedule(date=yesterday, sportId=1)
+        # Retry schedule fetch up to 3 times on transient network failures
+        schedule = None
+        last_exc = None
+        for attempt in range(1, 4):
+            try:
+                schedule = statsapi.schedule(date=yesterday, sportId=1)
+                break
+            except Exception as net_exc:
+                last_exc = net_exc
+                logger.warning(f"[{JOB}] statsapi.schedule attempt {attempt}/3 failed: {net_exc}")
+                if attempt < 3:
+                    time.sleep(5)
+        if schedule is None:
+            raise last_exc  # type: ignore[misc]
+
         games = [
             g
             for g in schedule
@@ -163,8 +177,22 @@ def _ingest_one_game(
         },
     )
 
-    # --- Fetch boxscore ---
-    boxscore = statsapi.boxscore_data(game_id)
+    # --- Fetch boxscore (retry up to 3 times on transient failures) ---
+    boxscore = None
+    last_exc = None
+    for attempt in range(1, 4):
+        try:
+            boxscore = statsapi.boxscore_data(game_id)
+            break
+        except Exception as net_exc:
+            last_exc = net_exc
+            logger.warning(f"[ingest_yesterday] boxscore_data({game_id}) attempt {attempt}/3 failed: {net_exc}")
+            if attempt < 3:
+                time.sleep(5)
+    if boxscore is None:
+        if last_exc is not None:
+            raise last_exc
+        raise ValueError(f"empty boxscore for game {game_id}")
     if not boxscore:
         raise ValueError(f"empty boxscore for game {game_id}")
 

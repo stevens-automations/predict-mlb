@@ -130,7 +130,8 @@ def evaluate_yesterday(
                 away_score = label[2]
 
             actual_winner = home_team if did_home_win else away_team
-            did_correct = 1 if predicted_winner == actual_winner else 0
+            actual_side = "home" if did_home_win else "away"  # predicted_winner is "home"/"away"
+            did_correct = 1 if predicted_winner == actual_side else 0
 
             # Update prediction row
             conn.execute(

@@ -24,8 +24,10 @@ from pathlib import Path
 
 import pytz
 import requests
+import tweepy
 from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
 from apscheduler.schedulers.blocking import BlockingScheduler
+from dotenv import load_dotenv
 
 # --- Job imports ---
 from scripts.jobs.evaluate_yesterday import evaluate_yesterday, generate_weekly_recap
@@ -42,6 +44,8 @@ from scripts.jobs.update_layer2 import update_layer2
 ROOT = Path(__file__).resolve().parent
 DB_PATH = str(ROOT / "data" / "mlb_history.db")
 ET_TZ = pytz.timezone("America/New_York")
+
+load_dotenv(ROOT / ".env")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -140,6 +144,59 @@ def _pipeline_log(job: str, status: str, message: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Twitter posting helper
+# ---------------------------------------------------------------------------
+
+
+def post_tweet(text: str) -> str:
+    """Post a tweet via tweepy. Returns the tweet ID as a string.
+
+    Tries v2 Client first (TWITTER_API_KEY / TWITTER_API_SECRET /
+    TWITTER_ACCESS_TOKEN / TWITTER_ACCESS_TOKEN_SECRET).
+    Falls back to v1.1 API (CONSUMER_KEY / CONSUMER_SECRET /
+    ACCESS_TOKEN / ACCESS_TOKEN_SECRET) on non-auth errors (e.g. 503).
+    Raises on auth errors (401/403) so they surface clearly.
+    """
+    import os
+
+    # --- v2 attempt ---
+    try:
+        client = tweepy.Client(
+            consumer_key=os.environ["TWITTER_API_KEY"],
+            consumer_secret=os.environ["TWITTER_API_SECRET"],
+            access_token=os.environ["TWITTER_ACCESS_TOKEN"],
+            access_token_secret=os.environ["TWITTER_ACCESS_TOKEN_SECRET"],
+        )
+        resp = client.create_tweet(text=text)
+        tweet_id = str(resp.data["id"])
+        logger.info(f"Tweet posted via v2: {tweet_id}")
+        _pipeline_log("post_tweet", "completed", f"v2 tweet_id={tweet_id}")
+        return tweet_id
+    except tweepy.Forbidden as exc:
+        logger.error(f"Twitter v2 auth error (403): {exc}")
+        raise
+    except tweepy.Unauthorized as exc:
+        logger.error(f"Twitter v2 auth error (401): {exc}")
+        raise
+    except Exception as exc:
+        logger.warning(f"Twitter v2 failed ({exc}), trying v1.1 fallback")
+
+    # --- v1.1 fallback ---
+    auth = tweepy.OAuth1UserHandler(
+        os.environ["CONSUMER_KEY"],
+        os.environ["CONSUMER_SECRET"],
+        os.environ["ACCESS_TOKEN"],
+        os.environ["ACCESS_TOKEN_SECRET"],
+    )
+    api = tweepy.API(auth)
+    status = api.update_status(text)
+    tweet_id = str(status.id)
+    logger.info(f"Tweet posted via v1.1: {tweet_id}")
+    _pipeline_log("post_tweet", "completed", f"v1.1 tweet_id={tweet_id}")
+    return tweet_id
+
+
+# ---------------------------------------------------------------------------
 # Job functions
 # ---------------------------------------------------------------------------
 
@@ -213,16 +270,18 @@ def register_tweet_jobs(scheduler: BlockingScheduler, conn: sqlite3.Connection) 
         def make_tweet_job(gid: int, text: str, db_path: str):
             def tweet_job():
                 import sqlite3 as _sqlite3
+                try:
+                    tweet_id = post_tweet(text)
+                except Exception as exc:
+                    _pipeline_log(f"tweet_game_{gid}", "failed", str(exc))
+                    logger.error(f"Tweet failed for game {gid}: {exc}")
+                    raise
+
                 c = _sqlite3.connect(db_path)
-                c.row_factory = _sqlite3.Row
                 try:
                     c.execute(
                         "INSERT INTO pipeline_log (job, status, message) VALUES (?, ?, ?)",
-                        (
-                            f"tweet_game_{gid}",
-                            "completed",
-                            f"TWEET (not yet posted — no Twitter creds): {text[:100]}",
-                        ),
+                        (f"tweet_game_{gid}", "completed", f"tweet_id={tweet_id}"),
                     )
                     c.execute(
                         "UPDATE daily_predictions SET tweeted=1, tweet_scheduled_at=? WHERE game_id=?",
@@ -231,7 +290,7 @@ def register_tweet_jobs(scheduler: BlockingScheduler, conn: sqlite3.Connection) 
                     c.commit()
                 finally:
                     c.close()
-                print(f"\n[TWEET] {text}\n")
+                print(f"\n[TWEET] id={tweet_id} {text}\n")
 
             return tweet_job
 
@@ -264,13 +323,31 @@ def morning_chain(scheduler: BlockingScheduler) -> None:
     logger.info("=== morning_chain starting ===")
     conn = _open_conn()
     try:
-        ingest_yesterday(conn)
-        update_layer2(conn)
-        evaluate_yesterday(conn)
+        # Non-critical jobs: failures are logged but don't abort the chain
+        try:
+            ingest_yesterday(conn)
+        except Exception as exc:
+            logger.error(f"morning_chain: ingest_yesterday failed (non-fatal): {exc}")
+            _pipeline_log("ingest_yesterday", "failed", f"non-fatal: {exc}")
+
+        try:
+            update_layer2(conn)
+        except Exception as exc:
+            logger.error(f"morning_chain: update_layer2 failed (non-fatal): {exc}")
+            _pipeline_log("update_layer2", "failed", f"non-fatal: {exc}")
+
+        try:
+            evaluate_yesterday(conn)
+        except Exception as exc:
+            logger.error(f"morning_chain: evaluate_yesterday failed (non-fatal): {exc}")
+            _pipeline_log("evaluate_yesterday", "failed", f"non-fatal: {exc}")
+
         if datetime.now(ET_TZ).weekday() == 0:  # Monday
             recap = generate_weekly_recap(conn)
             _pipeline_log('weekly_recap', 'completed', recap)
             print(f'[WEEKLY RECAP] {recap}')
+
+        # Critical path: failures here should abort since predictions depend on them
         fetch_todays_games(conn)
         fetch_odds(conn)
         predict_today(conn)
