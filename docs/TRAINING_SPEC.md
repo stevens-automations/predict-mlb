@@ -1,5 +1,7 @@
 # Training & Preprocessing Spec
-Last updated: 2026-03-18
+Last updated: 2026-03-30
+
+> **Model is trained and deployed as of March 2026.** The active model is `matchup_lgbm_v4_tuned_final` in `artifacts/model_registry/`. This document serves as the training reference for future retraining runs.
 
 ## Core Principle
 This is a head-to-head binary prediction task: did the home team win?

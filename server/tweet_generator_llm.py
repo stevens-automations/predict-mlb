@@ -247,14 +247,8 @@ Write a single tweet that states the pick clearly (with odds) and briefly explai
             # Over limit — truncate and return
             return _enforce_char_limit(tweet)
 
-    # Fallback to deterministic scaffold
-    try:
-        from server.tweet_scaffold import format_prediction_tweet
-        lines = format_prediction_tweet([game])
-        result = lines[0] if lines else f"{winner if feature_dict is None else game['home_team']} ({win_pct if feature_dict is None else int((game['home_win_prob'] if game['predicted_winner'] == 'home' else 1 - game['home_win_prob']) * 100)}%) over {loser if feature_dict is None else game['away_team']}"
-        return _enforce_char_limit(result)
-    except Exception:
-        winner_fb = game["home_team"] if game["predicted_winner"] == "home" else game["away_team"]
-        prob_fb = game["home_win_prob"] if game["predicted_winner"] == "home" else 1 - game["home_win_prob"]
-        loser_fb = game["away_team"] if game["predicted_winner"] == "home" else game["home_team"]
-        return _enforce_char_limit(f"{winner_fb} ({int(prob_fb * 100)}%) over {loser_fb}")
+    # Fallback to simple deterministic format
+    winner_fb = game["home_team"] if game["predicted_winner"] == "home" else game["away_team"]
+    prob_fb = game["home_win_prob"] if game["predicted_winner"] == "home" else 1 - game["home_win_prob"]
+    loser_fb = game["away_team"] if game["predicted_winner"] == "home" else game["home_team"]
+    return _enforce_char_limit(f"{winner_fb} ({int(prob_fb * 100)}%) over {loser_fb}")
