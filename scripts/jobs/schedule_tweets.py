@@ -104,7 +104,7 @@ def select_games_to_tweet(conn: sqlite3.Connection, date_str: Optional[str] = No
     """
     Select top games to tweet for a given date.
 
-    Returns up to 3 games with tweet_score >= 2, sorted by score descending.
+    Returns up to 3 games with tweet_score >= 2 AND confidence_tier in (medium, high), sorted by score descending.
     """
     if date_str is None:
         date_str = datetime.now(ET_TZ).strftime("%Y-%m-%d")
@@ -141,6 +141,7 @@ def schedule_tweets(conn: sqlite3.Connection, date_str: Optional[str] = None) ->
     Score all predictions for a date, mark tweet-eligible games, return selected games.
 
     This is called after predict_today() has run and daily_predictions is populated.
+    Only medium/high confidence_tier games are eligible for tweeting, regardless of score.
     """
     if date_str is None:
         date_str = datetime.now(ET_TZ).strftime("%Y-%m-%d")
@@ -169,7 +170,7 @@ def schedule_tweets(conn: sqlite3.Connection, date_str: Optional[str] = None) ->
             r = dict(zip(cols, row))
 
         s = score_game_interestingness(r)
-        eligible = 1 if s >= 2 else 0
+        eligible = 1 if (s >= 2 and r.get("confidence_tier", "low") in ("medium", "high")) else 0
         r["tweet_score"] = s
         r["tweet_eligible"] = eligible
 

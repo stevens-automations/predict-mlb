@@ -274,7 +274,9 @@ def predict_today(
 
                 # Tweet scoring
                 tweet_score = score_game_interestingness(prediction_row)
-                tweet_eligible = 1 if tweet_score >= 2 else 0
+                confidence_tier = score["confidence_tier"]
+                # Only medium/high tier games are tweet-eligible
+                tweet_eligible = 1 if (tweet_score >= 2 and confidence_tier in ("medium", "high")) else 0
                 tweet_text = None
 
                 # Generate tweet for eligible games
