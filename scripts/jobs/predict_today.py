@@ -275,7 +275,7 @@ def predict_today(
                 # Tweet scoring
                 tweet_score = score_game_interestingness(prediction_row)
                 confidence_tier = score["confidence_tier"]
-                # Only medium/high tier games are tweet-eligible
+                # tier gate: only medium/high eligible
                 tweet_eligible = 1 if (tweet_score >= 2 and confidence_tier in ("medium", "high")) else 0
                 tweet_text = None
 
@@ -325,6 +325,29 @@ def predict_today(
                 errors += 1
                 _log(conn, JOB, "failed",
                      f"game_id={game_id}: {type(e).__name__}: {e}", 0.0)
+
+        # DB integrity check: no low-tier games should be tweet_eligible
+        bad_count = conn.execute(
+            """
+            SELECT COUNT(*) FROM daily_predictions
+            WHERE game_date = ? AND tweet_eligible = 1
+              AND confidence_tier NOT IN ('medium', 'high')
+            """,
+            (date_str,),
+        ).fetchone()[0]
+        if bad_count:
+            _log(conn, JOB, "warn",
+                 f"tier gate violation: {bad_count} low-tier rows had tweet_eligible=1, forcing to 0")
+            conn.execute(
+                """
+                UPDATE daily_predictions
+                SET tweet_eligible = 0, updated_at = datetime('now')
+                WHERE game_date = ? AND tweet_eligible = 1
+                  AND confidence_tier NOT IN ('medium', 'high')
+                """,
+                (date_str,),
+            )
+            conn.commit()
 
         duration = time.time() - t0
         _log(

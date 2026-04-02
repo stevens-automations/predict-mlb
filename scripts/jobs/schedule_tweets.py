@@ -170,6 +170,7 @@ def schedule_tweets(conn: sqlite3.Connection, date_str: Optional[str] = None) ->
             r = dict(zip(cols, row))
 
         s = score_game_interestingness(r)
+        # tier gate: only medium/high eligible
         eligible = 1 if (s >= 2 and r.get("confidence_tier", "low") in ("medium", "high")) else 0
         r["tweet_score"] = s
         r["tweet_eligible"] = eligible

@@ -45,7 +45,7 @@ def evaluate_yesterday(
 
     Steps:
       1. Get yesterday's date (or use date_str).
-      2. Load daily_predictions rows where game_date = yesterday AND did_predict_correct IS NULL.
+      2. Load ALL daily_predictions rows where game_date = yesterday (idempotent re-eval).
       3. For each, look up result in labels table by game_id.
       4. Update did_predict_correct (1/0), actual_winner, home_score, away_score.
       5. Compute total/correct/accuracy overall + by confidence_tier.
@@ -69,19 +69,19 @@ def evaluate_yesterday(
     logger.info(f"[{JOB}] evaluating predictions for {yesterday}")
 
     try:
-        # Load unevaluated predictions
+        # Load ALL predictions for the date (idempotent — safe to re-run)
         preds = conn.execute(
             """
             SELECT game_id, predicted_winner, home_team, away_team,
-                   home_win_prob, confidence_tier
+                   home_win_prob, confidence_tier, did_predict_correct
             FROM daily_predictions
-            WHERE game_date = ? AND did_predict_correct IS NULL
+            WHERE game_date = ?
             """,
             (yesterday,),
         ).fetchall()
 
         if not preds:
-            msg = f"No unevaluated predictions found for {yesterday}"
+            msg = f"No predictions found for {yesterday}"
             elapsed = time.time() - t0
             _log(conn, JOB, "completed", msg, elapsed)
             logger.info(f"[{JOB}] {msg}")
@@ -90,6 +90,7 @@ def evaluate_yesterday(
         total = 0
         correct = 0
         skipped = 0
+        overwritten = 0
         # tier_counts: tier -> {"total": int, "correct": int}
         tier_counts: dict[str, dict[str, int]] = {}
 
@@ -108,6 +109,7 @@ def evaluate_yesterday(
             home_team = _get(pred, "home_team", 2)
             away_team = _get(pred, "away_team", 3)
             confidence_tier = _get(pred, "confidence_tier", 5) or "unknown"
+            prev_result = _get(pred, "did_predict_correct", 6)
 
             # Look up actual result in labels
             label = conn.execute(
@@ -149,6 +151,8 @@ def evaluate_yesterday(
 
             total += 1
             correct += did_correct
+            if prev_result is not None:
+                overwritten += 1
 
             # Track by tier
             tier_counts.setdefault(confidence_tier, {"total": 0, "correct": 0})
@@ -180,6 +184,8 @@ def evaluate_yesterday(
             f"date={yesterday} evaluated={total} correct={correct} skipped={skipped} "
             f"accuracy={accuracy:.1%}"
         )
+        if overwritten:
+            summary += f" | {overwritten} rows re-evaluated (overwritten from prior run)"
         if tier_parts:
             summary += " | " + " | ".join(tier_parts)
 
