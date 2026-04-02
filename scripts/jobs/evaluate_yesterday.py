@@ -309,7 +309,7 @@ def generate_weekly_recap(conn) -> str:
                 date_fmt = f"{gd.month}/{gd.day}"
             except Exception:
                 date_fmt = str(game_date_str)
-            best_pick_line = f" Best call: {winner_name} ({odds}) beat the {opponent} on {date_fmt}."
+            best_pick_line = f" Best read: {winner_name} ({odds}) over {opponent}, {date_fmt}."
 
         recap = f"Week {week_num}: {w_correct}-{w_wrong}. Season: {s_correct}-{s_wrong} ({season_pct}%).{best_pick_line}"
         return recap[:260]
