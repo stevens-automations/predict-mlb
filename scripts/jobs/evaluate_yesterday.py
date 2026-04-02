@@ -221,64 +221,114 @@ def evaluate_yesterday(
 
 
 def generate_weekly_recap(conn) -> str:
+    """Generate weekly recap tweet text. Called every Monday morning.
+
+    Returns clean prose (max 260 chars, no pipes/emojis/hashtags) with:
+      - Week N: W-L weekly record
+      - Season W-L + pct
+      - Best upset call with opponent and date context
+    Falls back to a safe season-record string on any error.
     """
-    Generate weekly recap tweet text. Called every Monday morning.
-    Includes: season W/L record, best upset correctly predicted this week.
-    """
+    import math
+    from datetime import date as _date
     from datetime import datetime, timedelta
+
     import pytz
-    ET = pytz.timezone('America/New_York')
-    today = datetime.now(ET).date()
-    week_start = today - timedelta(days=7)
 
-    # Season totals
-    season_row = conn.execute('''
-        SELECT COUNT(*) as total, SUM(did_predict_correct) as correct
-        FROM daily_predictions
-        WHERE did_predict_correct IS NOT NULL
-    ''').fetchone()
-    total = season_row['total'] or 0
-    correct = int(season_row['correct'] or 0)
-    season_pct = int(100 * correct / total) if total else 0
+    SEASON_START = _date(2026, 3, 26)
+    ET = pytz.timezone("America/New_York")
 
-    # This week's totals
-    week_row = conn.execute('''
-        SELECT COUNT(*) as total, SUM(did_predict_correct) as correct
-        FROM daily_predictions
-        WHERE did_predict_correct IS NOT NULL AND game_date >= ?
-    ''', (str(week_start),)).fetchone()
-    w_total = week_row['total'] or 0
-    w_correct = int(week_row['correct'] or 0)
+    def _get(row, name, idx):
+        try:
+            return row[name]
+        except (KeyError, TypeError, IndexError):
+            return row[idx]
 
-    # Best upset correctly predicted this week
-    upset_row = conn.execute('''
-        SELECT home_team, away_team, predicted_winner, home_win_prob,
-               home_odds, away_odds, game_date
-        FROM daily_predictions
-        WHERE did_predict_correct = 1
-        AND game_date >= ?
-        AND (
-            (predicted_winner = 'home' AND CAST(home_odds AS INTEGER) > 0)
-            OR
-            (predicted_winner = 'away' AND CAST(away_odds AS INTEGER) > 0)
-        )
-        ORDER BY ABS(CAST(
-            CASE WHEN predicted_winner='home' THEN home_odds ELSE away_odds END
-        AS INTEGER)) DESC
-        LIMIT 1
-    ''', (str(week_start),)).fetchone()
+    try:
+        today = datetime.now(ET).date()
+        week_start = today - timedelta(days=7)
 
-    # Build tweet
-    lines = []
-    lines.append(f'Weekly recap: {w_correct}/{w_total} this week.')
-    lines.append(f'Season record: {correct}/{total} ({season_pct}%)')
+        # Week number: Mondays since season start
+        days_since = (today - SEASON_START).days
+        week_num = max(1, math.ceil(days_since / 7))
 
-    if upset_row:
-        winner_name = upset_row['home_team'] if upset_row['predicted_winner'] == 'home' else upset_row['away_team']
-        upset_odds = upset_row['home_odds'] if upset_row['predicted_winner'] == 'home' else upset_row['away_odds']
-        lines.append(f'Best pick: {winner_name} ({upset_odds}) \u2713')
+        # Season totals
+        season_row = conn.execute(
+            """SELECT COUNT(*) as total, SUM(did_predict_correct) as correct
+               FROM daily_predictions WHERE did_predict_correct IS NOT NULL"""
+        ).fetchone()
+        s_total = (_get(season_row, "total", 0) or 0) if season_row else 0
+        s_correct = int(_get(season_row, "correct", 1) or 0) if season_row else 0
+        s_wrong = s_total - s_correct
+        season_pct = int(100 * s_correct / s_total) if s_total else 0
 
-    return ' | '.join(lines)
+        # This week's totals
+        week_row = conn.execute(
+            """SELECT COUNT(*) as total, SUM(did_predict_correct) as correct
+               FROM daily_predictions
+               WHERE did_predict_correct IS NOT NULL AND game_date >= ?""",
+            (str(week_start),),
+        ).fetchone()
+        w_total = (_get(week_row, "total", 0) or 0) if week_row else 0
+        w_correct = int(_get(week_row, "correct", 1) or 0) if week_row else 0
+        w_wrong = w_total - w_correct
+
+        # Fallback if no games evaluated this week
+        if w_total == 0:
+            return f"Season record: {s_correct}-{s_wrong} ({season_pct}%). More picks coming this week."
+
+        # Best upset correctly predicted this week
+        upset_row = conn.execute(
+            """SELECT home_team, away_team, predicted_winner, home_win_prob,
+                      home_odds, away_odds, game_date
+               FROM daily_predictions
+               WHERE did_predict_correct = 1
+                 AND game_date >= ?
+                 AND (
+                     (predicted_winner = 'home' AND CAST(home_odds AS INTEGER) > 0)
+                     OR
+                     (predicted_winner = 'away' AND CAST(away_odds AS INTEGER) > 0)
+                 )
+               ORDER BY ABS(CAST(
+                   CASE WHEN predicted_winner='home' THEN home_odds ELSE away_odds END
+               AS INTEGER)) DESC
+               LIMIT 1""",
+            (str(week_start),),
+        ).fetchone()
+
+        # Build best-pick line
+        best_pick_line = ""
+        if upset_row:
+            pred_winner = _get(upset_row, "predicted_winner", 2)
+            winner_name = _get(upset_row, "home_team", 0) if pred_winner == "home" else _get(upset_row, "away_team", 1)
+            opponent = _get(upset_row, "away_team", 1) if pred_winner == "home" else _get(upset_row, "home_team", 0)
+            odds = _get(upset_row, "home_odds", 4) if pred_winner == "home" else _get(upset_row, "away_odds", 5)
+            game_date_str = _get(upset_row, "game_date", 6)
+            try:
+                gd = datetime.strptime(str(game_date_str), "%Y-%m-%d")
+                date_fmt = f"{gd.month}/{gd.day}"
+            except Exception:
+                date_fmt = str(game_date_str)
+            best_pick_line = f" Best call: {winner_name} ({odds}) beat the {opponent} on {date_fmt}."
+
+        recap = f"Week {week_num}: {w_correct}-{w_wrong}. Season: {s_correct}-{s_wrong} ({season_pct}%).{best_pick_line}"
+        return recap[:260]
+
+    except Exception as exc:
+        logger.warning(f"generate_weekly_recap error: {exc}")
+        # Safe fallback — try to return season record
+        try:
+            fb = conn.execute(
+                """SELECT COUNT(*) as total, SUM(did_predict_correct) as correct
+                   FROM daily_predictions WHERE did_predict_correct IS NOT NULL"""
+            ).fetchone()
+            fb_total = (_get(fb, "total", 0) or 0) if fb else 0
+            fb_correct = int(_get(fb, "correct", 1) or 0) if fb else 0
+            fb_wrong = fb_total - fb_correct
+            fb_pct = int(100 * fb_correct / fb_total) if fb_total else 0
+            return f"Season record: {fb_correct}-{fb_wrong} ({fb_pct}%)."
+        except Exception:
+            return "Season recap unavailable."
 
 
 # Type alias for row access compatibility

@@ -344,8 +344,14 @@ def morning_chain(scheduler: BlockingScheduler) -> None:
 
         if datetime.now(ET_TZ).weekday() == 0:  # Monday
             recap = generate_weekly_recap(conn)
-            _pipeline_log('weekly_recap', 'completed', recap)
-            print(f'[WEEKLY RECAP] {recap}')
+            _pipeline_log("weekly_recap", "completed", recap)
+            print(f"[WEEKLY RECAP] {recap}")
+            try:
+                tweet_id = post_tweet(recap)
+                _pipeline_log("weekly_recap_tweet", "completed", f"posted tweet_id={tweet_id}")
+            except Exception as exc:
+                _pipeline_log("weekly_recap_tweet", "failed", str(exc))
+                logger.warning(f"weekly_recap tweet failed (non-fatal): {exc}")
 
         # Critical path: failures here should abort since predictions depend on them
         fetch_todays_games(conn)
